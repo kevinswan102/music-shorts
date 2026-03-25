@@ -1,14 +1,16 @@
 """
-Music Source — yt-dlp channel scanning + audio download
-Scans the @official_stardrift YouTube channel, picks the next unprocessed
-track, and downloads the audio as MP3.
+Music Source — channel scanning + audio download from GitHub Releases.
+
+The flat-playlist scan (metadata only) works from anywhere via yt-dlp.
+Audio files are pre-uploaded to a GitHub Release by running upload_tracks.py locally.
+The workflow downloads the MP3 from the release asset URL.
 """
 
 import os
 import json
 import subprocess
-import glob
 import logging
+import requests
 from typing import Optional, Dict, List
 
 logger = logging.getLogger(__name__)
@@ -18,14 +20,8 @@ CHANNEL_URL = os.getenv(
     "STARDRIFT_CHANNEL_URL",
     "https://www.youtube.com/@official_stardrift",
 )
-COOKIES_FILE = os.getenv("YTDLP_COOKIES", "")
-
-
-def _cookies_args() -> List[str]:
-    """Return ['--cookies', path] if a cookies file is set and exists."""
-    if COOKIES_FILE and os.path.exists(COOKIES_FILE):
-        return ["--cookies", COOKIES_FILE]
-    return []
+REPO = os.getenv("GITHUB_REPOSITORY", "kevinswan102/music-shorts")
+RELEASE_TAG = "audio-tracks"
 
 
 def load_archive() -> set:
@@ -44,16 +40,14 @@ def save_to_archive(video_id: str) -> None:
 
 def list_channel_videos() -> List[Dict]:
     """
-    Use yt-dlp --flat-playlist to get all video metadata from the channel.
-    Returns list of dicts with keys: id, title, url, duration.
-    Ordered newest-first (default yt-dlp order for channel/videos).
+    Use yt-dlp --flat-playlist to get video metadata from the channel.
+    Flat-playlist only fetches IDs/titles (no actual download), works from CI.
     """
     cmd = [
         "yt-dlp",
         "--flat-playlist",
         "--dump-json",
         "--no-warnings",
-    ] + _cookies_args() + [
         f"{CHANNEL_URL}/videos",
     ]
     try:
@@ -88,61 +82,100 @@ def list_channel_videos() -> List[Dict]:
     return videos
 
 
+def _get_release_assets() -> Dict[str, str]:
+    """
+    Fetch the list of assets from the GitHub Release.
+    Returns dict of {filename: download_url}.
+    """
+    api_url = f"https://api.github.com/repos/{REPO}/releases/tags/{RELEASE_TAG}"
+    try:
+        resp = requests.get(api_url, timeout=15, headers={"Accept": "application/vnd.github+json"})
+        if resp.status_code != 200:
+            logger.warning(f"GitHub release API returned {resp.status_code}")
+            return {}
+        assets = resp.json().get("assets", [])
+        return {a["name"]: a["browser_download_url"] for a in assets}
+    except Exception as e:
+        logger.error(f"Failed to fetch release assets: {e}")
+        return {}
+
+
 def pick_next_track(videos: List[Dict]) -> Optional[Dict]:
     """
-    Pick the next unprocessed track. Iterates newest-first,
-    skips anything already in archive.txt. Returns None if all processed.
+    Pick the next unprocessed track that also has an uploaded audio file.
+    Iterates newest-first, skips archived, skips tracks without audio.
     """
     archive = load_archive()
+    assets = _get_release_assets()
+    available_ids = {name.replace(".mp3", "") for name in assets.keys()}
+
     for video in videos:
-        if video["id"] not in archive:
+        if video["id"] not in archive and video["id"] in available_ids:
             return video
+
+    # Log why nothing was found
+    unprocessed = [v for v in videos if v["id"] not in archive]
+    if not unprocessed:
+        logger.info("All tracks have been processed.")
+    elif not available_ids:
+        logger.warning("No audio files in GitHub Release. Run upload_tracks.py locally first.")
+    else:
+        missing = [v["id"] for v in unprocessed if v["id"] not in available_ids]
+        if missing:
+            logger.warning(f"Tracks missing audio upload: {missing[:5]}")
+
     return None
 
 
 def download_audio(video_url: str, output_dir: str = "/tmp") -> Optional[str]:
     """
-    Download audio from a YouTube video as MP3 using yt-dlp.
-    Tries multiple strategies to bypass bot detection on CI.
-    Returns path to downloaded MP3, or None on failure.
+    Download audio MP3 from GitHub Release assets (not YouTube).
+    Falls back to yt-dlp if release asset not found.
     """
-    output_template = os.path.join(output_dir, "%(id)s.%(ext)s")
-
-    # Strategy 1: YouTube Music URL (different bot detection)
     video_id = video_url.split("v=")[-1].split("&")[0] if "v=" in video_url else ""
-    urls_to_try = []
-    if video_id:
-        urls_to_try.append(f"https://music.youtube.com/watch?v={video_id}")
-    urls_to_try.append(video_url)
+    if not video_id:
+        logger.error("Could not extract video ID from URL")
+        return None
 
-    player_clients = ["ios,web", "tv,web", "default"]
+    # Primary: download from GitHub Release
+    assets = _get_release_assets()
+    filename = f"{video_id}.mp3"
+    download_url = assets.get(filename)
 
-    for url in urls_to_try:
-        for pc in player_clients:
-            cmd = [
-                "yt-dlp",
-                "-x",
-                "--audio-format", "mp3",
-                "--audio-quality", "192K",
-                "-o", output_template,
-                "--no-playlist",
-            ]
-            if pc != "default":
-                cmd += ["--extractor-args", f"youtube:player_client={pc}"]
-            cmd += _cookies_args() + [url]
+    if download_url:
+        output_path = os.path.join(output_dir, filename)
+        try:
+            logger.info(f"Downloading audio from GitHub Release: {filename}")
+            resp = requests.get(download_url, stream=True, timeout=120)
+            resp.raise_for_status()
+            with open(output_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            logger.info(f"Audio downloaded: {output_path} ({os.path.getsize(output_path) / 1024:.0f} KB)")
+            return output_path
+        except Exception as e:
+            logger.error(f"GitHub Release download failed: {e}")
 
-            logger.info(f"Trying download: {url[:60]}... (client={pc})")
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-                if result.returncode == 0:
-                    matches = glob.glob(os.path.join(output_dir, "*.mp3"))
-                    if matches:
-                        logger.info(f"Download succeeded with client={pc}")
-                        return max(matches, key=os.path.getmtime)
-            except subprocess.TimeoutExpired:
-                logger.warning(f"Timeout with client={pc}")
-                continue
-            logger.warning(f"Failed with client={pc}: {result.stderr[:200]}")
+    # Fallback: try yt-dlp directly (works locally, fails on CI)
+    logger.warning(f"No release asset for {video_id}, trying yt-dlp directly...")
+    output_template = os.path.join(output_dir, "%(id)s.%(ext)s")
+    cmd = [
+        "yt-dlp", "-x",
+        "--audio-format", "mp3",
+        "--audio-quality", "192K",
+        "-o", output_template,
+        "--no-playlist",
+        video_url,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode == 0:
+            import glob
+            matches = glob.glob(os.path.join(output_dir, "*.mp3"))
+            if matches:
+                return max(matches, key=os.path.getmtime)
+    except subprocess.TimeoutExpired:
+        pass
 
-    logger.error("All download strategies failed")
+    logger.error(f"All download methods failed for {video_id}")
     return None
