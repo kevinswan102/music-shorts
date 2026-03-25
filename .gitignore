@@ -11,3 +11,4 @@ youtube_credentials.json
 youtube_token.pickle
 .DS_Store
 .claude/
+cookies.txt
