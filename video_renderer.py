@@ -202,18 +202,29 @@ def concat_segments(segment_paths: List[str], output_path: str) -> str:
 
 
 def add_text_overlay(video_path: str, track_name: str, artist: str,
-                      output_path: str) -> str:
+                      output_path: str, total_duration: float = 30.0) -> str:
     """
-    Burn track name onto the video using ffmpeg drawtext.
-    Subtle, transparent style — song title only (no artist, it's in YT title).
+    Burn track name + end CTA onto the video using ffmpeg drawtext.
+    - Song title: subtle, always visible, centered near bottom
+    - CTA: "Stream now - link below" fades in during last 4 seconds
     """
     safe_track = track_name.replace("'", "\\'").replace(":", "\\:").replace('"', '\\"')
 
+    cta_start = max(0, total_duration - 4.0)
+
     filter_text = (
+        # Song title — always visible, subtle
         f"drawtext=text='{safe_track}':"
         f"fontsize=36:fontcolor=white@0.7:"
         f"borderw=1:bordercolor=black@0.5:"
-        f"x=(w-text_w)/2:y=h-180"
+        f"x=(w-text_w)/2:y=h-180,"
+        # CTA — fades in last 4 seconds
+        f"drawtext=text='Stream now \\- link below':"
+        f"fontsize=42:fontcolor=white:"
+        f"borderw=2:bordercolor=black@0.6:"
+        f"x=(w-text_w)/2:y=h/2-21:"
+        f"enable='gte(t,{cta_start:.1f})':"
+        f"alpha='min(1,(t-{cta_start:.1f})/0.5)'"
     )
 
     cmd = [
@@ -286,7 +297,10 @@ def render_short(audio_segment_path: str,
     # Step 3: Text overlay
     text_path = os.path.join(output_dir, f"text_{ts}.mp4")
     try:
-        add_text_overlay(concat_path, track_name, artist, text_path)
+        # Calculate total duration from beat intervals for CTA timing
+        total_dur = beat_intervals[-1][1] if beat_intervals else 30.0
+        add_text_overlay(concat_path, track_name, artist, text_path,
+                         total_duration=total_dur)
     except subprocess.CalledProcessError as e:
         logger.error(f"Text overlay failed: {e}")
         text_path = concat_path  # fall back to no-text version
