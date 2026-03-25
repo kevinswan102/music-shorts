@@ -138,9 +138,11 @@ def main():
         audio_path, analysis["best_start"], analysis["best_end"], segment_path
     )
 
+    segment_duration = analysis["best_end"] - analysis["best_start"]
     beat_intervals = get_beat_intervals(
         analysis["beat_times"],
         start_offset=analysis["best_start"],
+        segment_duration=segment_duration,
     )
     logger.info(f"Beat intervals: {len(beat_intervals)} cuts")
 

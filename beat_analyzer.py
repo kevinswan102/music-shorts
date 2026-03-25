@@ -12,8 +12,9 @@ from typing import Tuple, List
 
 logger = logging.getLogger(__name__)
 
-TARGET_DURATION = 30.0  # seconds
-WINDOW_HOP = 1.0  # sliding window hop (seconds)
+MAX_DURATION = 30.0   # max Short length
+MIN_DURATION = 15.0   # min Short length
+WINDOW_HOP = 1.0      # sliding window hop (seconds)
 
 
 def analyze_track(audio_path: str) -> dict:
@@ -43,9 +44,21 @@ def analyze_track(audio_path: str) -> dict:
     # Onset strength envelope (used to find most energetic section)
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
 
-    # Find the most energetic 30-second window
-    best_start, best_end = _find_best_window(onset_env, sr, duration)
-    logger.info(f"Best 30s window: {best_start:.1f}s - {best_end:.1f}s")
+    # Choose Short duration based on BPM — faster tracks get shorter Shorts
+    if bpm >= 160:
+        target_dur = 18.0
+    elif bpm >= 140:
+        target_dur = 22.0
+    elif bpm >= 120:
+        target_dur = 25.0
+    else:
+        target_dur = 30.0
+    target_dur = min(target_dur, duration)  # can't exceed track length
+    logger.info(f"Target Short duration: {target_dur:.0f}s (BPM: {bpm:.0f})")
+
+    # Find the most energetic window of target duration
+    best_start, best_end = _find_best_window(onset_env, sr, duration, target_dur)
+    logger.info(f"Best {target_dur:.0f}s window: {best_start:.1f}s - {best_end:.1f}s")
 
     # Filter beats to only those within the chosen window
     window_beats = [b for b in beat_times if best_start <= b <= best_end]
@@ -81,17 +94,18 @@ def analyze_track(audio_path: str) -> dict:
 
 
 def _find_best_window(onset_env: np.ndarray, sr: int,
-                       track_duration: float) -> Tuple[float, float]:
+                       track_duration: float,
+                       target_duration: float = 30.0) -> Tuple[float, float]:
     """
-    Slide a TARGET_DURATION window over the onset envelope and find the
-    position with the highest average onset strength (= most energetic section).
+    Slide a window over the onset envelope and find the position
+    with the highest average onset strength (= most energetic section).
     """
     hop_length = 512  # librosa default
     frame_duration = hop_length / sr
-    window_frames = int(TARGET_DURATION / frame_duration)
+    window_frames = int(target_duration / frame_duration)
 
     if len(onset_env) <= window_frames:
-        return 0.0, min(track_duration, TARGET_DURATION)
+        return 0.0, min(track_duration, target_duration)
 
     hop_frames = max(1, int(WINDOW_HOP / frame_duration))
     best_score = -1.0
@@ -105,11 +119,11 @@ def _find_best_window(onset_env: np.ndarray, sr: int,
             best_frame = start_frame
 
     best_start = best_frame * frame_duration
-    best_end = best_start + TARGET_DURATION
+    best_end = best_start + target_duration
 
     if best_end > track_duration:
         best_end = track_duration
-        best_start = max(0.0, best_end - TARGET_DURATION)
+        best_start = max(0.0, best_end - target_duration)
 
     return best_start, best_end
 
@@ -133,6 +147,7 @@ def _snap_to_frame(t: float, fps: int = 30) -> float:
 
 
 def get_beat_intervals(beat_times: List[float], start_offset: float = 0.0,
+                        segment_duration: float = 30.0,
                         min_interval: float = 0.3,
                         max_interval: float = 4.0,
                         fps: int = 30,
@@ -148,11 +163,11 @@ def get_beat_intervals(beat_times: List[float], start_offset: float = 0.0,
     import random
 
     if not beat_times:
-        return [(0.0, TARGET_DURATION)]
+        return [(0.0, segment_duration)]
 
     relative = [b - start_offset for b in beat_times if b >= start_offset]
     if not relative:
-        return [(0.0, TARGET_DURATION)]
+        return [(0.0, segment_duration)]
 
     # Randomly skip some beats so not every beat is a cut.
     # Keep first and last few beats, skip randomly in between.
@@ -174,7 +189,7 @@ def get_beat_intervals(beat_times: List[float], start_offset: float = 0.0,
             current_start = snapped
 
     # Final interval to the end
-    final_end = _snap_to_frame(TARGET_DURATION, fps)
+    final_end = _snap_to_frame(segment_duration, fps)
     if current_start < final_end:
         intervals.append((current_start, final_end))
 

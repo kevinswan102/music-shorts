@@ -141,8 +141,9 @@ def cut_footage_to_beats(footage_paths: List[str],
                           output_dir: str = "/tmp",
                           genre: str = "default") -> List[str]:
     """
-    For each beat interval, take the next footage clip (cycling),
+    For each beat interval, assign a unique footage clip (no reuse),
     crop/grade it with genre-specific theme, and trim to EXACT frame count.
+    If more intervals than clips, caps at available clips.
     Returns list of paths to trimmed segments.
     """
     segments = []
@@ -154,6 +155,15 @@ def cut_footage_to_beats(footage_paths: List[str],
     # Pick cohesive visual theme for this video based on genre
     theme = VISUAL_THEMES.get(genre, VISUAL_THEMES["default"])
     logger.info(f"Visual theme: {genre}")
+
+    # Cap intervals to available clips — no clip reuse
+    if len(beat_intervals) > n_clips:
+        logger.info(f"Capping {len(beat_intervals)} intervals to {n_clips} unique clips")
+        beat_intervals = beat_intervals[:n_clips]
+
+    # Shuffle clip assignment so it's not always the same order
+    clip_order = list(range(n_clips))
+    random.shuffle(clip_order)
 
     # Pre-compute clip durations for random seek offsets
     clip_durations = {}
@@ -168,7 +178,7 @@ def cut_footage_to_beats(footage_paths: List[str],
         if n_frames <= 0:
             continue
 
-        src_clip = footage_paths[i % n_clips]
+        src_clip = footage_paths[clip_order[i % n_clips]]
         graded_path = os.path.join(output_dir, f"graded_{i}.mp4")
         segment_path = os.path.join(output_dir, f"beat_seg_{i}.mp4")
 
@@ -252,25 +262,28 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     """
     Burn track name + end CTA onto the video using ffmpeg drawtext.
     - Song title: subtle, always visible, centered near bottom
-    - CTA: "Stream now - link below" fades in during last 4 seconds
+    - CTA: "Stream now" appears last 4 seconds
     """
-    safe_track = track_name.replace("'", "\\'").replace(":", "\\:").replace('"', '\\"')
+    # Escape characters that break ffmpeg drawtext
+    safe_track = (track_name
+                  .replace("\\", "\\\\")
+                  .replace("'", "\u2019")  # replace apostrophe with unicode right quote
+                  .replace(":", "\\:")
+                  .replace('"', '\\"'))
 
     cta_start = max(0, total_duration - 4.0)
 
+    # Use separate -vf filters joined by semicolons to avoid comma conflicts
     filter_text = (
-        # Song title — always visible, subtle
         f"drawtext=text='{safe_track}':"
         f"fontsize=36:fontcolor=white@0.7:"
         f"borderw=1:bordercolor=black@0.5:"
         f"x=(w-text_w)/2:y=h-180,"
-        # CTA — fades in last 4 seconds
-        f"drawtext=text='Stream now \\- link below':"
-        f"fontsize=42:fontcolor=white:"
+        f"drawtext=text='Stream now - link in description':"
+        f"fontsize=40:fontcolor=white@0.9:"
         f"borderw=2:bordercolor=black@0.6:"
-        f"x=(w-text_w)/2:y=h/2-21:"
-        f"enable='gte(t,{cta_start:.1f})':"
-        f"alpha='min(1,(t-{cta_start:.1f})/0.5)'"
+        f"x=(w-text_w)/2:y=h/2-20:"
+        f"enable='gte(t\\,{cta_start:.1f})'"
     )
 
     cmd = [
