@@ -63,4 +63,4 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add archive.txt
           git diff --cached --quiet || git commit -m "chore: update archive.txt with processed track"
-          git push
+          git pull --rebase && git push
