@@ -273,11 +273,13 @@ def concat_segments(segment_paths: List[str], output_path: str) -> str:
 
 
 def add_text_overlay(video_path: str, track_name: str, artist: str,
-                      output_path: str, total_duration: float = 30.0) -> str:
+                      output_path: str, total_duration: float = 30.0,
+                      poem_lines: list = None) -> str:
     """
     Burn text overlays onto the video using ffmpeg drawtext.
-    - Song title: fades in over first 2 seconds, centered
-    - Artist name: below title, smaller, fades in slightly after
+    - Poem lines: appear one at a time for engagement (upper area)
+    - Song title: visible from start (bottom)
+    - Artist name: fades in later (bottom, below title)
     - CTA: "Stream now - link in description" appears last 4 seconds
     """
     def _escape(text: str) -> str:
@@ -295,26 +297,58 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     artist_in = min(6.0, total_duration * 0.3)
     artist_fade_end = artist_in + 1.5
 
-    filter_text = (
-        # Song title — visible from start, subtle
+    filters = []
+
+    # Poem lines — appear one at a time, centered in upper third
+    if poem_lines:
+        n = len(poem_lines)
+        # Space lines evenly across the video duration (minus last 4s for CTA)
+        available_dur = max(8.0, total_duration - 4.0)
+        interval = available_dur / n
+        poem_y_start = 350  # upper area, below safe zone
+        line_spacing = 55
+
+        for i, line in enumerate(poem_lines):
+            safe_line = _escape(line)
+            appear_at = i * interval + 1.0  # stagger start
+            y_pos = poem_y_start + i * line_spacing
+            filters.append(
+                f"drawtext=text='{safe_line}':"
+                f"fontsize=36:fontcolor=white@0.9:"
+                f"borderw=2:bordercolor=black@0.6:"
+                f"box=1:boxcolor=black@0.3:boxborderw=8:"
+                f"x=(w-text_w)/2:y={y_pos}:"
+                f"enable='gte(t\\,{appear_at:.1f})'"
+            )
+
+    # Song title — visible from start, subtle
+    filters.append(
         f"drawtext=text='{safe_track}':"
         f"fontsize=44:fontcolor=white@0.85:"
         f"borderw=2:bordercolor=black@0.5:"
-        f"x=(w-text_w)/2:y=h-200,"
-        # Artist name — fades in later (around 30% through the clip)
+        f"x=(w-text_w)/2:y=h-200"
+    )
+
+    # Artist name — fades in later (around 30% through the clip)
+    filters.append(
         f"drawtext=text='{safe_artist}':"
         f"fontsize=30:fontcolor=white:"
         f"borderw=1:bordercolor=black@0.4:"
         f"x=(w-text_w)/2:y=h-155:"
         f"enable='gte(t\\,{artist_in:.1f})':"
-        f"alpha='if(gte(t\\,{artist_fade_end:.1f})\\,0.6\\,(t-{artist_in:.1f})/{artist_fade_end - artist_in:.1f}*0.6)',"
-        # CTA — appears last 4 seconds, centered
+        f"alpha='if(gte(t\\,{artist_fade_end:.1f})\\,0.6\\,(t-{artist_in:.1f})/{artist_fade_end - artist_in:.1f}*0.6)'"
+    )
+
+    # CTA — appears last 4 seconds, centered
+    filters.append(
         f"drawtext=text='Stream now - link in description':"
         f"fontsize=40:fontcolor=white@0.9:"
         f"borderw=2:bordercolor=black@0.6:"
         f"x=(w-text_w)/2:y=h/2-20:"
         f"enable='gte(t\\,{cta_start:.1f})'"
     )
+
+    filter_text = ",".join(filters)
 
     cmd = [
         "ffmpeg", "-y",
@@ -333,18 +367,11 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
 
 def mux_audio_video(video_path: str, audio_path: str,
                      output_path: str, total_duration: float = 30.0) -> str:
-    """Mux video with audio, adding fade-in/out for smooth looping."""
-    fade_dur = 0.5
-    fade_out_start = max(0, total_duration - fade_dur)
-
+    """Mux video with audio. No fades — segment is bar-aligned for clean loop."""
     cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
         "-i", audio_path,
-        # Fade video in at start, out at end — smooth loop feel
-        "-vf", f"fade=t=in:st=0:d={fade_dur},fade=t=out:st={fade_out_start:.2f}:d={fade_dur}",
-        # Fade audio in/out to match
-        "-af", f"afade=t=in:st=0:d={fade_dur},afade=t=out:st={fade_out_start:.2f}:d={fade_dur}",
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-crf", "23",
@@ -364,6 +391,7 @@ def render_short(audio_segment_path: str,
                   track_name: str,
                   artist: str = "Unknown Artist",
                   genre: str = "default",
+                  poem_lines: list = None,
                   output_dir: str = "/tmp") -> Optional[str]:
     """
     Top-level render function:
@@ -401,7 +429,7 @@ def render_short(audio_segment_path: str,
         # Calculate total duration from beat intervals for CTA timing
         total_dur = beat_intervals[-1][1] if beat_intervals else 30.0
         add_text_overlay(concat_path, track_name, artist, text_path,
-                         total_duration=total_dur)
+                         total_duration=total_dur, poem_lines=poem_lines)
     except subprocess.CalledProcessError as e:
         logger.error(f"Text overlay failed: {e}")
         text_path = concat_path  # fall back to no-text version

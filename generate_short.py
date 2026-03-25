@@ -99,6 +99,51 @@ def generate_description(track_name: str, genre: str) -> str:
         return ""
 
 
+def generate_poem(track_name: str, genre: str) -> list:
+    """Generate a 4-line poem/quote for engagement overlay. Returns list of lines."""
+    try:
+        from llm_client import get_llm_client, llm_available
+        if not llm_available():
+            return []
+
+        client, model = get_llm_client()
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Write a 4-line poem or philosophical quote inspired by the feeling "
+                    f"of a song called \"{track_name}\" (mood: {genre}). "
+                    f"Rules:\n"
+                    f"- Exactly 4 lines, each under 35 characters\n"
+                    f"- Deep, poetic, emotional — the kind of text people screenshot\n"
+                    f"- No hashtags, no emojis, no rhyming required\n"
+                    f"- Lowercase only\n"
+                    f"- Think: Rupi Kaur, Atticus, or late-night thoughts\n"
+                    f"- Do NOT mention the song title\n"
+                    f"Examples:\n"
+                    f"  some fires burn\n"
+                    f"  without smoke\n"
+                    f"  you only feel the heat\n"
+                    f"  when it's too late\n"
+                    f"\n"
+                    f"  the moon knows\n"
+                    f"  what the sun will never see\n"
+                    f"  the version of you\n"
+                    f"  that comes alive at night\n"
+                    f"\nReply with ONLY the 4 lines, nothing else."
+                ),
+            }],
+            max_tokens=100,
+            temperature=1.0,
+        )
+        lines = [l.strip() for l in resp.choices[0].message.content.strip().split('\n') if l.strip()]
+        return lines[:4]
+    except Exception as e:
+        logger.warning(f"LLM poem generation failed: {e}")
+        return []
+
+
 def main():
     logger.info("=" * 60)
     logger.info("MUSIC SHORTS GENERATOR")
@@ -169,6 +214,11 @@ def main():
         sys.exit(1)
     logger.info(f"Fetched {len(footage_paths)} footage clips")
 
+    # Step 5b: Generate engagement poem
+    poem_lines = generate_poem(song_title, genre)
+    if poem_lines:
+        logger.info(f"Poem: {poem_lines}")
+
     # Step 6: Render video
     logger.info("Step 6: Rendering beat-synced video...")
     final_video = render_short(
@@ -178,6 +228,7 @@ def main():
         track_name=song_title,
         artist=ARTIST_NAME,
         genre=genre,
+        poem_lines=poem_lines,
     )
     if not final_video:
         logger.error("Video rendering failed. Exiting.")

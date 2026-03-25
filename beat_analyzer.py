@@ -58,7 +58,14 @@ def analyze_track(audio_path: str) -> dict:
 
     # Find the most energetic window of target duration
     best_start, best_end = _find_best_window(onset_env, sr, duration, target_dur)
-    logger.info(f"Best {target_dur:.0f}s window: {best_start:.1f}s - {best_end:.1f}s")
+
+    # Snap to bar boundaries so the Short loops cleanly
+    bar_duration = 4 * (60.0 / bpm)  # 4 beats per bar
+    best_start, best_end = _snap_to_bars(
+        best_start, best_end, beat_times, bar_duration, duration
+    )
+    logger.info(f"Bar-aligned window: {best_start:.2f}s - {best_end:.2f}s "
+                f"({(best_end - best_start):.1f}s, bar={bar_duration:.2f}s)")
 
     # Filter beats to only those within the chosen window
     window_beats = [b for b in beat_times if best_start <= b <= best_end]
@@ -124,6 +131,45 @@ def _find_best_window(onset_env: np.ndarray, sr: int,
     if best_end > track_duration:
         best_end = track_duration
         best_start = max(0.0, best_end - target_duration)
+
+    return best_start, best_end
+
+
+def _snap_to_bars(best_start: float, best_end: float,
+                   beat_times: List[float], bar_duration: float,
+                   track_duration: float) -> Tuple[float, float]:
+    """
+    Snap the segment start to the nearest beat and the end to a full bar
+    boundary so the Short loops seamlessly (no fade needed).
+    Tries 8, 4, 2, then 1 bar multiples for best fit near target duration.
+    """
+    target_dur = best_end - best_start
+
+    # Snap start to the nearest beat at or before best_start
+    candidates = [b for b in beat_times if b <= best_start + 0.1]
+    if candidates:
+        snap_start = candidates[-1]
+    else:
+        snap_start = beat_times[0] if beat_times else best_start
+
+    # Try to fit the most bars that stay within reasonable Short length
+    best_fit_end = None
+    best_fit_diff = float('inf')
+
+    for n_bars in range(1, 32):
+        candidate_end = snap_start + n_bars * bar_duration
+        if candidate_end > track_duration:
+            break
+        diff = abs((candidate_end - snap_start) - target_dur)
+        if diff < best_fit_diff:
+            best_fit_diff = diff
+            best_fit_end = candidate_end
+        # Once we've passed target by more than 2 bars, stop searching
+        if candidate_end - snap_start > target_dur + 2 * bar_duration:
+            break
+
+    if best_fit_end and best_fit_end > snap_start:
+        return snap_start, best_fit_end
 
     return best_start, best_end
 
