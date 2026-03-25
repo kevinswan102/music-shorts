@@ -108,14 +108,21 @@ def extract_audio_segment(audio_path: str, start: float, end: float,
     return output_path
 
 
+def _snap_to_frame(t: float, fps: int = 30) -> float:
+    """Snap a time value to the nearest frame boundary to prevent drift."""
+    return round(t * fps) / fps
+
+
 def get_beat_intervals(beat_times: List[float], start_offset: float = 0.0,
                         min_interval: float = 0.3,
-                        max_interval: float = 4.0) -> List[Tuple[float, float]]:
+                        max_interval: float = 4.0,
+                        fps: int = 30) -> List[Tuple[float, float]]:
     """
     Convert beat timestamps into (start, end) intervals for video cuts.
     Merges beats that are too close (< min_interval).
     Splits intervals that are too long (> max_interval).
     All times are relative to the clip (offset by start_offset).
+    Times are snapped to frame boundaries (1/fps) to prevent cumulative drift.
     """
     if not beat_times:
         return [(0.0, TARGET_DURATION)]
@@ -128,12 +135,13 @@ def get_beat_intervals(beat_times: List[float], start_offset: float = 0.0,
     current_start = 0.0
 
     for beat in relative:
-        if beat - current_start >= min_interval:
-            intervals.append((current_start, beat))
-            current_start = beat
+        snapped = _snap_to_frame(beat, fps)
+        if snapped - current_start >= min_interval:
+            intervals.append((current_start, snapped))
+            current_start = snapped
 
     # Final interval to the end
-    final_end = TARGET_DURATION
+    final_end = _snap_to_frame(TARGET_DURATION, fps)
     if current_start < final_end:
         intervals.append((current_start, final_end))
 
@@ -141,7 +149,7 @@ def get_beat_intervals(beat_times: List[float], start_offset: float = 0.0,
     final = []
     for s, e in intervals:
         while e - s > max_interval:
-            mid = s + max_interval
+            mid = _snap_to_frame(s + max_interval, fps)
             final.append((s, mid))
             s = mid
         final.append((s, e))

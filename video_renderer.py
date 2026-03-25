@@ -9,7 +9,9 @@ All heavy lifting is done by ffmpeg subprocess calls (fast, low RAM).
 
 import os
 import gc
+import math
 import time
+import random
 import subprocess
 import logging
 from typing import List, Tuple, Optional
@@ -28,19 +30,55 @@ COLOR_GRADE_FILTERS = (
     "vignette=PI/4"
 )
 
+# Occasional FX filters applied to random segments for variety
+BEAT_FX = [
+    None,  # no extra FX (most common)
+    None,
+    None,
+    "negate",  # brief color inversion
+    "hue=h=180",  # hue shift
+    "eq=brightness=0.15:contrast=1.5",  # flash-bright
+    "hflip",  # mirror
+    "eq=saturation=0:contrast=1.4",  # B&W high contrast
+]
 
-def crop_to_vertical(clip_path: str, output_path: str) -> str:
+
+def _get_clip_duration(clip_path: str) -> float:
+    """Get duration of a video clip using ffprobe."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", clip_path],
+            capture_output=True, text=True, timeout=10,
+        )
+        return float(result.stdout.strip())
+    except Exception:
+        return 0.0
+
+
+def crop_to_vertical(clip_path: str, output_path: str,
+                     seek_offset: float = 0.0, extra_vf: str = "") -> str:
     """
     Crop + color-grade a video clip to 9:16 (1080x1920) in one ffmpeg pass.
     Handles both vertical and horizontal source footage.
+    seek_offset: start this many seconds into the clip for variety.
+    extra_vf: optional additional filter (beat FX).
     """
-    filter_chain = (
-        f"scale=-2:{HEIGHT},"
-        f"crop={WIDTH}:{HEIGHT},"
-        f"{COLOR_GRADE_FILTERS}"
-    )
+    filters = [
+        f"scale=-2:{HEIGHT}",
+        f"crop={WIDTH}:{HEIGHT}",
+        COLOR_GRADE_FILTERS,
+    ]
+    if extra_vf:
+        filters.append(extra_vf)
+    filter_chain = ",".join(filters)
+
     cmd = [
         "ffmpeg", "-y",
+    ]
+    if seek_offset > 0:
+        cmd += ["-ss", f"{seek_offset:.2f}"]
+    cmd += [
         "-i", clip_path,
         "-vf", filter_chain,
         "-c:v", "libx264",
@@ -60,7 +98,8 @@ def cut_footage_to_beats(footage_paths: List[str],
                           output_dir: str = "/tmp") -> List[str]:
     """
     For each beat interval, take the next footage clip (cycling),
-    crop/grade it, and trim to the interval duration.
+    crop/grade it, and trim to EXACT frame count (prevents beat drift).
+    Applies random seek offset into clips + occasional FX for variety.
     Returns list of paths to trimmed segments.
     """
     segments = []
@@ -69,28 +108,48 @@ def cut_footage_to_beats(footage_paths: List[str],
         logger.error("No footage clips available")
         return []
 
+    # Pre-compute clip durations for random seek offsets
+    clip_durations = {}
+
     for i, (start, end) in enumerate(beat_intervals):
         duration = end - start
         if duration <= 0:
+            continue
+
+        # Exact frame count — prevents cumulative drift
+        n_frames = round(duration * FPS)
+        if n_frames <= 0:
             continue
 
         src_clip = footage_paths[i % n_clips]
         graded_path = os.path.join(output_dir, f"graded_{i}.mp4")
         segment_path = os.path.join(output_dir, f"beat_seg_{i}.mp4")
 
-        try:
-            crop_to_vertical(src_clip, graded_path)
+        # Random seek offset into the source clip for variety
+        if src_clip not in clip_durations:
+            clip_durations[src_clip] = _get_clip_duration(src_clip)
+        src_dur = clip_durations[src_clip]
+        max_seek = max(0, src_dur - duration - 1.0)
+        seek = random.uniform(0, max_seek) if max_seek > 1.0 else 0.0
 
-            # Trim to beat duration; loop if clip is shorter than interval
+        # Occasional FX on some segments
+        fx = random.choice(BEAT_FX)
+
+        try:
+            crop_to_vertical(src_clip, graded_path,
+                             seek_offset=seek, extra_vf=fx or "")
+
+            # Trim to EXACT frame count (not float duration)
             cmd = [
                 "ffmpeg", "-y",
                 "-stream_loop", "-1",
                 "-i", graded_path,
-                "-t", f"{duration:.3f}",
+                "-frames:v", str(n_frames),
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
                 "-crf", "23",
                 "-pix_fmt", "yuv420p",
+                "-r", str(FPS),
                 "-an",
                 segment_path,
             ]
