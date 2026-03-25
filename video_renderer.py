@@ -291,18 +291,23 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     safe_artist = _escape(artist)
     cta_start = max(0, total_duration - 4.0)
 
+    # Artist fade: invisible until artist_in, then fades in over 1.5s
+    artist_in = min(6.0, total_duration * 0.3)
+    artist_fade_end = artist_in + 1.5
+
     filter_text = (
-        # Song title — fades in first 2 seconds, stays visible
+        # Song title — visible from start, subtle
         f"drawtext=text='{safe_track}':"
         f"fontsize=44:fontcolor=white@0.85:"
         f"borderw=2:bordercolor=black@0.5:"
         f"x=(w-text_w)/2:y=h-200,"
-        # Artist name — smaller, below title, fades in after 0.5s
+        # Artist name — fades in later (around 30% through the clip)
         f"drawtext=text='{safe_artist}':"
-        f"fontsize=30:fontcolor=white@0.6:"
+        f"fontsize=30:fontcolor=white:"
         f"borderw=1:bordercolor=black@0.4:"
         f"x=(w-text_w)/2:y=h-155:"
-        f"enable='gte(t\\,0.5)',"
+        f"enable='gte(t\\,{artist_in:.1f})':"
+        f"alpha='if(gte(t\\,{artist_fade_end:.1f})\\,0.6\\,(t-{artist_in:.1f})/{artist_fade_end - artist_in:.1f}*0.6)',"
         # CTA — appears last 4 seconds, centered
         f"drawtext=text='Stream now - link in description':"
         f"fontsize=40:fontcolor=white@0.9:"
@@ -327,13 +332,23 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
 
 
 def mux_audio_video(video_path: str, audio_path: str,
-                     output_path: str) -> str:
-    """Mux concatenated video with the audio segment."""
+                     output_path: str, total_duration: float = 30.0) -> str:
+    """Mux video with audio, adding fade-in/out for smooth looping."""
+    fade_dur = 0.5
+    fade_out_start = max(0, total_duration - fade_dur)
+
     cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
         "-i", audio_path,
-        "-c:v", "copy",
+        # Fade video in at start, out at end — smooth loop feel
+        "-vf", f"fade=t=in:st=0:d={fade_dur},fade=t=out:st={fade_out_start:.2f}:d={fade_dur}",
+        # Fade audio in/out to match
+        "-af", f"afade=t=in:st=0:d={fade_dur},afade=t=out:st={fade_out_start:.2f}:d={fade_dur}",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "192k",
         "-shortest",
@@ -395,7 +410,8 @@ def render_short(audio_segment_path: str,
     final_name = f"music_short_{ts}.mp4"
     final_path = os.path.join(output_dir, final_name)
     try:
-        mux_audio_video(text_path, audio_segment_path, final_path)
+        mux_audio_video(text_path, audio_segment_path, final_path,
+                        total_duration=total_dur)
     except subprocess.CalledProcessError as e:
         logger.error(f"Audio mux failed: {e}")
         return None

@@ -65,10 +65,10 @@ PEXELS_KEYWORDS = {
         "mushroom forest macro", "deep ocean bioluminescence", "northern lights",
     ],
     "dark": [
-        "thunderstorm clouds", "dark forest fog", "abandoned building",
-        "fire burning dark", "smoke rising dark", "storm ocean night",
-        "wolf eyes dark", "raven flying", "eclipse moon",
-        "candle flame wind", "dark water reflection", "lightning strike night",
+        "thunderstorm clouds", "dark forest fog", "storm ocean night",
+        "fire burning dark", "lightning strike night", "dark canyon",
+        "mountain storm clouds", "dark river night", "smoke dark background",
+        "storm waves ocean", "dark road rain", "night sky dramatic",
     ],
     "rock": [
         "concert crowd lights", "guitar close up", "drum sticks playing",
@@ -110,8 +110,8 @@ ARCHIVE_QUERIES = {
         ("noir detective", None),
         ("dark city night", "prelinger"),
         ("superman villain", "fleischer_studios"),
-        ("horror monster", "SciFi_Horror"),
         ("thunder lightning", "prelinger"),
+        ("gangster film noir", "film_noir"),
     ],
     "trap": [
         ("gangster film noir", "film_noir"),
@@ -170,7 +170,7 @@ def classify_genre(track_title: str) -> str:
     # Order matters — more specific matches first
     hints = {
         "psychedelic": ["psychedelic", "trippy", "acid", "fractal", "kaleidoscope", "experimental", "weird"],
-        "dark": ["ghost", "nightmare", "demon", "horror", "scream", "shadow", "doom", "grave", "blood"],
+        "dark": ["nightmare", "demon", "horror", "scream", "doom", "grave", "blood", "hellfire", "cursed"],
         "rock": ["rock", "guitar", "punk", "grunge", "metal", "shred"],
         "phonk": ["phonk", "drift", "cowbell", "memphis"],
         "trap": ["trap", "drill", "gang", "menace", "opp", "concealed"],
