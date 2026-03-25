@@ -49,6 +49,12 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SOURCE_CHANNEL_URL: ${{ secrets.SOURCE_CHANNEL_URL }}
           ARTIST_NAME: ${{ secrets.ARTIST_NAME }}
+          BEATSTARS_URL: ${{ secrets.BEATSTARS_URL }}
+          INSTAGRAM_HANDLE: ${{ secrets.INSTAGRAM_HANDLE }}
+          HYPERFOLLOW_URL: ${{ secrets.HYPERFOLLOW_URL }}
+          SPOTIFY_URL: ${{ secrets.SPOTIFY_URL }}
+          APPLE_MUSIC_URL: ${{ secrets.APPLE_MUSIC_URL }}
+          FREECASH_URL: ${{ secrets.FREECASH_URL }}
         run: python generate_short.py
 
       - name: Commit archive.txt

@@ -40,7 +40,10 @@ class YouTubeUploader:
         self.category_id = os.getenv('YOUTUBE_CATEGORY', '10')  # 10 = Music
         self.default_tags = os.getenv('YOUTUBE_TAGS', 'music,electronic,shorts').split(',')
 
-        self.scopes = ['https://www.googleapis.com/auth/youtube.upload']
+        self.scopes = [
+            'https://www.googleapis.com/auth/youtube.upload',
+            'https://www.googleapis.com/auth/youtube.force-ssl',
+        ]
         self.credentials_file = 'youtube_credentials.json'
         self.token_file = 'youtube_token.pickle'
         self.youtube_service = None
@@ -240,13 +243,31 @@ class YouTubeUploader:
             return {'success': False, 'error': str(e)}
 
     def _post_early_comment(self, video_id: str) -> None:
-        """Post a comment on the uploaded video — non-fatal."""
-        source_channel = os.getenv('SOURCE_CHANNEL_URL', '')
-        channel_handle = source_channel.split('/')[-1] if source_channel else ''
-        text = (
-            f"Full track on {channel_handle} — subscribe for more music!\n\n"
-            "Like if you vibed with this one."
-        )
+        """Post a pinned comment with music links — non-fatal."""
+        artist = os.getenv('ARTIST_NAME', 'Unknown Artist')
+        beatstars = os.getenv('BEATSTARS_URL', '')
+        instagram = os.getenv('INSTAGRAM_HANDLE', '')
+        hyperfollow = os.getenv('HYPERFOLLOW_URL', '')
+        spotify = os.getenv('SPOTIFY_URL', '')
+        apple_music = os.getenv('APPLE_MUSIC_URL', '')
+        freecash = os.getenv('FREECASH_URL', '')
+
+        lines = [f"Stream {artist} everywhere:"]
+        if beatstars:
+            lines.append(f"Buy beats & services: {beatstars}")
+        if spotify:
+            lines.append(f"Spotify: {spotify}")
+        if apple_music:
+            lines.append(f"Apple Music: {apple_music}")
+        if hyperfollow:
+            lines.append(f"All platforms: {hyperfollow}")
+        if instagram:
+            lines.append(f"IG: {instagram}")
+        if freecash:
+            lines.append(f"\nEarn free cash: {freecash}")
+        lines.append("\nLike if you vibed with this one!")
+
+        text = "\n".join(lines)
         try:
             self.youtube_service.commentThreads().insert(
                 part="snippet",
@@ -262,26 +283,53 @@ class YouTubeUploader:
             logger.warning(f"Comment failed (non-fatal): {e}")
 
     def _generate_metadata(self, video_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate music-focused YouTube metadata."""
+        """Generate music-focused YouTube metadata with artist links."""
         track_name = video_data.get('track_name', 'Untitled')
         artist = video_data.get('artist', os.getenv('ARTIST_NAME', 'Unknown'))
         genre = video_data.get('genre', 'Electronic')
         llm_description = video_data.get('description_text', '')
-        source_channel = os.getenv('SOURCE_CHANNEL_URL', '')
+
+        # Links from env vars (keeps repo clean)
+        beatstars = os.getenv('BEATSTARS_URL', '')
+        instagram = os.getenv('INSTAGRAM_HANDLE', '')
+        hyperfollow = os.getenv('HYPERFOLLOW_URL', '')
+        spotify = os.getenv('SPOTIFY_URL', '')
+        apple_music = os.getenv('APPLE_MUSIC_URL', '')
+        freecash = os.getenv('FREECASH_URL', '')
 
         title = f"{track_name} | {artist} #shorts #music #{genre.lower().replace(' ', '')}"
         title = title[:100]
 
-        description = f"{track_name} by {artist}\n\n"
+        # Build description
+        desc_parts = [f"{track_name} by {artist}"]
         if llm_description:
-            description += f"{llm_description}\n\n"
-        if source_channel:
-            description += f"Full track: {source_channel}\n\n"
-        description += f"#music #{genre.lower()} #shorts #electronic #musicvideo"
+            desc_parts.append(llm_description)
+
+        # Artist links section
+        link_lines = []
+        if beatstars:
+            link_lines.append(f"Buy beats & services: {beatstars}")
+        if spotify:
+            link_lines.append(f"Spotify: {spotify}")
+        if apple_music:
+            link_lines.append(f"Apple Music: {apple_music}")
+        if hyperfollow:
+            link_lines.append(f"All platforms: {hyperfollow}")
+        if instagram:
+            link_lines.append(f"IG: {instagram}")
+        if link_lines:
+            desc_parts.append("\n".join(link_lines))
+
+        if freecash:
+            desc_parts.append(f"Earn free cash: {freecash}")
+
+        desc_parts.append(f"#music #{genre.lower()} #shorts #musicvideo #visualizer")
+
+        description = "\n\n".join(desc_parts)
 
         tags = [
             track_name, artist, genre.lower(), 'music', 'shorts',
-            'electronic', 'music video', 'visualizer',
+            'music video', 'visualizer', 'beats',
         ]
 
         return {

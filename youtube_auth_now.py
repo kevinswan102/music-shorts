@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 REDIRECT_URI = "http://localhost:8080/callback"
-SCOPES = "https://www.googleapis.com/auth/youtube.upload"
+SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl"
 
 _auth_code = None
 
