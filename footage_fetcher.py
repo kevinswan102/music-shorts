@@ -170,7 +170,7 @@ def classify_genre(track_title: str) -> str:
     # Order matters — more specific matches first
     hints = {
         "psychedelic": ["psychedelic", "trippy", "acid", "fractal", "kaleidoscope", "experimental", "weird"],
-        "dark": ["nightmare", "demon", "horror", "scream", "doom", "grave", "blood", "hellfire", "cursed"],
+        "dark": ["ghost", "nightmare", "demon", "horror", "scream", "doom", "grave", "cursed", "haunted"],
         "rock": ["rock", "guitar", "punk", "grunge", "metal", "shred"],
         "phonk": ["phonk", "drift", "cowbell", "memphis"],
         "trap": ["trap", "drill", "gang", "menace", "opp", "concealed"],
@@ -225,7 +225,7 @@ def classify_genre_llm(track_title: str, bpm: float = 0.0,
                     f"- chill: bright, summer, love, day, sun, breeze, relax, soft, peaceful\n"
                     f"- lofi: cozy, study, warm, nostalgic, rainy, coffee, late night\n"
                     f"- psychedelic: trippy, experimental, weird, acid, colorful, dream\n"
-                    f"- dark: ghost, shadow, demon, death, horror, eerie, nightmare, tears\n"
+                    f"- dark: ghost, haunted, cursed, demon, horror, eerie, nightmare, doom\n"
                     f"- rock: guitars, punk, grunge, alt rock, concert energy\n"
                     f"- phonk: memphis, drift, cowbell, dark bass, skrt\n"
                     f"- hype: fight, knockout, fire, insane, turbo, beast\n"
