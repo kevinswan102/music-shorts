@@ -103,31 +103,46 @@ def pick_next_track(videos: List[Dict]) -> Optional[Dict]:
 def download_audio(video_url: str, output_dir: str = "/tmp") -> Optional[str]:
     """
     Download audio from a YouTube video as MP3 using yt-dlp.
+    Tries multiple strategies to bypass bot detection on CI.
     Returns path to downloaded MP3, or None on failure.
     """
     output_template = os.path.join(output_dir, "%(id)s.%(ext)s")
-    cmd = [
-        "yt-dlp",
-        "-x",
-        "--audio-format", "mp3",
-        "--audio-quality", "192K",
-        "-o", output_template,
-        "--no-playlist",
-    ] + _cookies_args() + [
-        video_url,
-    ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    except subprocess.TimeoutExpired:
-        logger.error("Audio download timed out")
-        return None
 
-    if result.returncode != 0:
-        logger.error(f"Audio download failed: {result.stderr[:500]}")
-        return None
+    # Strategy 1: YouTube Music URL (different bot detection)
+    video_id = video_url.split("v=")[-1].split("&")[0] if "v=" in video_url else ""
+    urls_to_try = []
+    if video_id:
+        urls_to_try.append(f"https://music.youtube.com/watch?v={video_id}")
+    urls_to_try.append(video_url)
 
-    # Find the downloaded MP3 (yt-dlp names it by video ID)
-    matches = glob.glob(os.path.join(output_dir, "*.mp3"))
-    if matches:
-        return max(matches, key=os.path.getmtime)
+    player_clients = ["ios,web", "tv,web", "default"]
+
+    for url in urls_to_try:
+        for pc in player_clients:
+            cmd = [
+                "yt-dlp",
+                "-x",
+                "--audio-format", "mp3",
+                "--audio-quality", "192K",
+                "-o", output_template,
+                "--no-playlist",
+            ]
+            if pc != "default":
+                cmd += ["--extractor-args", f"youtube:player_client={pc}"]
+            cmd += _cookies_args() + [url]
+
+            logger.info(f"Trying download: {url[:60]}... (client={pc})")
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if result.returncode == 0:
+                    matches = glob.glob(os.path.join(output_dir, "*.mp3"))
+                    if matches:
+                        logger.info(f"Download succeeded with client={pc}")
+                        return max(matches, key=os.path.getmtime)
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Timeout with client={pc}")
+                continue
+            logger.warning(f"Failed with client={pc}: {result.stderr[:200]}")
+
+    logger.error("All download strategies failed")
     return None
