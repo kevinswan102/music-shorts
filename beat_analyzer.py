@@ -177,11 +177,21 @@ def _snap_to_bars(best_start: float, best_end: float,
 def extract_audio_segment(audio_path: str, start: float, end: float,
                            output_path: str) -> str:
     """
-    Extract a segment of audio. Saves as WAV for lossless moviepy compositing.
-    Returns output_path.
+    Extract a segment of audio. Saves as WAV for lossless compositing.
+    Applies a tiny (10ms) fade at start/end to eliminate loop click.
     """
     y, sr = librosa.load(audio_path, sr=22050, mono=False,
                           offset=start, duration=end - start)
+    # 10ms micro-fade to prevent loop click (imperceptible)
+    fade_samples = int(sr * 0.01)
+    if y.ndim == 1:
+        if len(y) > fade_samples * 2:
+            y[:fade_samples] *= np.linspace(0, 1, fade_samples)
+            y[-fade_samples:] *= np.linspace(1, 0, fade_samples)
+    else:
+        if y.shape[1] > fade_samples * 2:
+            y[:, :fade_samples] *= np.linspace(0, 1, fade_samples)
+            y[:, -fade_samples:] *= np.linspace(1, 0, fade_samples)
     sf.write(output_path, y.T if y.ndim > 1 else y, sr)
     logger.info(f"Extracted audio segment: {start:.1f}s-{end:.1f}s -> {output_path}")
     return output_path
