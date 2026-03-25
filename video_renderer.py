@@ -274,7 +274,7 @@ def concat_segments(segment_paths: List[str], output_path: str) -> str:
 
 def add_text_overlay(video_path: str, track_name: str, artist: str,
                       output_path: str, total_duration: float = 30.0,
-                      poem_lines: list = None) -> str:
+                      poem_lines: list = None, bpm: float = 0) -> str:
     """
     Burn text overlays onto the video using ffmpeg drawtext.
     - Poem lines: appear one at a time for engagement (upper area)
@@ -299,18 +299,32 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
 
     filters = []
 
-    # Poem lines — appear one at a time, centered in upper third
+    # Poem lines — appear one per bar, synced to musical structure
     if poem_lines:
         n = len(poem_lines)
-        # Space lines evenly across the video duration (minus last 4s for CTA)
-        available_dur = max(8.0, total_duration - 4.0)
-        interval = available_dur / n
+        # Use bar duration from BPM for musically-synced timing
+        if bpm > 0:
+            bar_dur = 4 * (60.0 / bpm)  # 4 beats per bar
+        else:
+            bar_dur = 4.0  # fallback ~4s per line
+
+        # Start poem at bar 2 (skip first bar to let viewer settle in)
+        # Each subsequent line appears at the next bar boundary
+        # All lines stay visible once they appear (no disappear)
         poem_y_start = 350  # upper area, below safe zone
         line_spacing = 55
 
         for i, line in enumerate(poem_lines):
             safe_line = _escape(line)
-            appear_at = i * interval + 1.0  # stagger start
+            # Bar 2 + i bars — synced to the music's rhythm
+            appear_at = (2 + i) * bar_dur
+            # Don't let poem appear after 60% of the video
+            max_start = total_duration * 0.6
+            if appear_at > max_start:
+                appear_at = max_start - (n - 1 - i) * 1.5  # compress spacing
+                appear_at = max(1.0, appear_at)
+            # Disappear 1 bar before end so it doesn't feel abrupt
+            disappear_at = total_duration - bar_dur
             y_pos = poem_y_start + i * line_spacing
             filters.append(
                 f"drawtext=text='{safe_line}':"
@@ -318,7 +332,7 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
                 f"borderw=2:bordercolor=black@0.6:"
                 f"box=1:boxcolor=black@0.3:boxborderw=8:"
                 f"x=(w-text_w)/2:y={y_pos}:"
-                f"enable='gte(t\\,{appear_at:.1f})'"
+                f"enable='between(t\\,{appear_at:.2f}\\,{disappear_at:.2f})'"
             )
 
     # Song title — visible from start, subtle
@@ -392,6 +406,7 @@ def render_short(audio_segment_path: str,
                   artist: str = "Unknown Artist",
                   genre: str = "default",
                   poem_lines: list = None,
+                  bpm: float = 0,
                   output_dir: str = "/tmp") -> Optional[str]:
     """
     Top-level render function:
@@ -429,7 +444,7 @@ def render_short(audio_segment_path: str,
         # Calculate total duration from beat intervals for CTA timing
         total_dur = beat_intervals[-1][1] if beat_intervals else 30.0
         add_text_overlay(concat_path, track_name, artist, text_path,
-                         total_duration=total_dur, poem_lines=poem_lines)
+                         total_duration=total_dur, poem_lines=poem_lines, bpm=bpm)
     except subprocess.CalledProcessError as e:
         logger.error(f"Text overlay failed: {e}")
         text_path = concat_path  # fall back to no-text version

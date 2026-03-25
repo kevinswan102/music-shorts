@@ -184,6 +184,7 @@ def render_and_upload_short(audio_path: str, analysis: dict,
         artist=ARTIST_NAME,
         genre=genre,
         poem_lines=poem_lines,
+        bpm=bpm,
     )
     if not final_video:
         logger.error(f"Render failed for short {short_num}. Skipping.")
