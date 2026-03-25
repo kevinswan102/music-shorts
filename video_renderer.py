@@ -57,11 +57,13 @@ def _get_clip_duration(clip_path: str) -> float:
 
 
 def crop_to_vertical(clip_path: str, output_path: str,
-                     seek_offset: float = 0.0, extra_vf: str = "") -> str:
+                     seek_offset: float = 0.0, max_duration: float = 10.0,
+                     extra_vf: str = "") -> str:
     """
     Crop + color-grade a video clip to 9:16 (1080x1920) in one ffmpeg pass.
     Handles both vertical and horizontal source footage.
     seek_offset: start this many seconds into the clip for variety.
+    max_duration: only process this many seconds (avoids processing full-length archive clips).
     extra_vf: optional additional filter (beat FX).
     """
     filters = [
@@ -80,6 +82,7 @@ def crop_to_vertical(clip_path: str, output_path: str,
         cmd += ["-ss", f"{seek_offset:.2f}"]
     cmd += [
         "-i", clip_path,
+        "-t", f"{max_duration:.2f}",
         "-vf", filter_chain,
         "-c:v", "libx264",
         "-preset", "ultrafast",
@@ -136,8 +139,10 @@ def cut_footage_to_beats(footage_paths: List[str],
         fx = random.choice(BEAT_FX)
 
         try:
+            # Only process enough of the source clip for this beat + small buffer
             crop_to_vertical(src_clip, graded_path,
-                             seek_offset=seek, extra_vf=fx or "")
+                             seek_offset=seek, max_duration=duration + 2.0,
+                             extra_vf=fx or "")
 
             # Trim to EXACT frame count (not float duration)
             cmd = [
@@ -156,7 +161,7 @@ def cut_footage_to_beats(footage_paths: List[str],
             subprocess.run(cmd, check=True, capture_output=True, timeout=60)
             segments.append(segment_path)
 
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             logger.warning(f"Failed to process segment {i}: {e}")
             continue
         finally:

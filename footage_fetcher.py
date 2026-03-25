@@ -316,7 +316,7 @@ def _archive_search(query: str, collection: Optional[str] = None,
         return []
 
 
-def _archive_get_video_url(identifier: str, max_size_mb: float = 100) -> Optional[str]:
+def _archive_get_video_url(identifier: str, max_size_mb: float = 50) -> Optional[str]:
     """Get the best video download URL for an archive.org item."""
     try:
         resp = requests.get(
