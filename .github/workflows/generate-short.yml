@@ -1,6 +1,8 @@
 name: Generate Music Short
 
 on:
+  push:
+    branches: [master]
   schedule:
     # Daily at midnight UTC (6pm EST)
     - cron: '0 0 * * *'
