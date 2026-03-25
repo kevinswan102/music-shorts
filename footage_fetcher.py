@@ -16,37 +16,61 @@ logger = logging.getLogger(__name__)
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
 PEXELS_BASE_URL = "https://api.pexels.com/videos"
 
-# Genre -> Pexels search keywords
+# Genre -> Pexels search keywords (shuffled each run for variety)
 GENRE_KEYWORDS = {
     "electronic": [
-        "neon city night", "futuristic tunnel", "laser lights",
-        "abstract lights", "cyberpunk city", "led lights",
-        "neon signs", "night drive city",
+        "neon city night", "futuristic tunnel", "laser lights club",
+        "cyberpunk city street", "led lights party", "night drive city",
+        "DJ turntable", "crowd concert", "drone city night",
+        "electric sparks", "hologram", "arcade game",
+    ],
+    "hype": [
+        "skateboard trick", "parkour urban", "crowd cheering stadium",
+        "boxing knockout", "basketball dunk", "lightning storm",
+        "fire explosion slow motion", "motorcycle stunt", "confetti celebration",
+        "race car speed", "skydiving", "surfing wave",
     ],
     "chill": [
-        "rain window", "ocean sunset", "forest fog",
-        "clouds timelapse", "water reflection", "candle flame",
-        "snow falling", "starry sky",
+        "ocean waves beach", "sunset clouds timelapse", "rain on window",
+        "cat sleeping cozy", "goldfish aquarium", "jellyfish underwater",
+        "flower blooming timelapse", "butterfly garden", "puppy playing",
+        "waterfall forest", "snow cabin", "candle flame dark",
     ],
     "lofi": [
-        "rain window", "cozy room", "coffee steam",
-        "vinyl record", "sunset city", "book reading",
-        "train window", "autumn leaves",
+        "rain window cozy", "coffee steam morning", "vinyl record player",
+        "train window countryside", "autumn leaves falling", "city rooftop sunset",
+        "cat on windowsill", "bookshelf cozy", "rainy street night",
+        "hand writing journal", "piano keys", "bicycle ride city",
     ],
     "phonk": [
-        "dark urban", "smoke particles", "car drift",
-        "motorcycle night", "boxing training", "dark alley",
-        "gym workout", "race car",
+        "car drift smoke", "dark urban alley", "boxing gym training",
+        "motorcycle night ride", "smoke slow motion dark", "gym deadlift",
+        "bull riding rodeo", "wolf howling", "eagle flying",
+        "thunderstorm dark", "street racing", "dark tunnel",
+    ],
+    "trap": [
+        "money cash counting", "city skyline night", "gold jewelry",
+        "luxury car driving", "helicopter aerial city", "lion roaring",
+        "smoke hookah", "crowd mosh pit", "graffiti art",
+        "chain necklace", "nightclub vip", "fireworks night",
     ],
     "ambient": [
-        "underwater", "aurora borealis", "space nebula",
-        "deep ocean", "crystal cave", "fog forest",
-        "ice landscape", "light rays",
+        "underwater coral reef", "aurora borealis sky", "space earth orbit",
+        "deep ocean jellyfish", "fog mountain sunrise", "crystal cave light",
+        "northern lights timelapse", "bioluminescence ocean", "desert sand dunes",
+        "milky way stars", "ice glacier melting", "light rays forest",
+    ],
+    "orchestral": [
+        "eagle soaring mountain", "castle medieval", "storm ocean waves",
+        "volcano eruption", "horse galloping field", "sword fight sparks",
+        "waterfall aerial", "sunrise mountain peak", "army marching",
+        "lion walking savanna", "dragon fire", "glacier landscape",
     ],
     "default": [
-        "abstract motion", "particle effects", "light streaks",
-        "smoke dark", "water surface", "geometric shapes",
-        "neon abstract", "bokeh lights",
+        "abstract motion colorful", "particle effects dark", "light streaks motion",
+        "smoke dark background", "water surface ripple", "slow motion liquid",
+        "dog running field", "cat funny", "bird flying sky",
+        "neon bokeh lights", "ink drop water", "city timelapse night",
     ],
 }
 
@@ -57,14 +81,17 @@ def classify_genre(track_title: str) -> str:
     """Simple keyword-based genre classification from track title."""
     title_lower = track_title.lower()
     hints = {
-        "phonk": ["phonk", "drift", "cowbell", "memphis", "dark"],
-        "chill": ["chill", "relax", "calm", "peaceful", "dreamy", "soft"],
-        "lofi": ["lofi", "lo-fi", "lo fi", "study", "beats"],
-        "ambient": ["ambient", "space", "ethereal", "atmospheric", "cosmic"],
+        "phonk": ["phonk", "drift", "cowbell", "memphis"],
+        "trap": ["trap", "drill", "gang", "menace", "opp", "kill", "concealed"],
+        "hype": ["hype", "engine", "warning", "knockout", "fight", "insanity"],
+        "chill": ["chill", "relax", "calm", "peaceful", "dreamy", "soft", "breeze", "summer"],
+        "lofi": ["lofi", "lo-fi", "lo fi", "study", "cozy", "medley", "campfire"],
+        "ambient": ["ambient", "space", "ethereal", "atmospheric", "cosmic", "nebula", "tranquil", "symphony"],
+        "orchestral": ["orchestral", "epic", "cinematic", "enemy", "battle", "inbound", "war"],
         "electronic": [
             "electronic", "synth", "bass", "drop", "edm",
             "techno", "house", "trance", "dubstep", "pulse",
-            "neon", "digital", "cyber",
+            "neon", "digital", "cyber", "daft", "funk",
         ],
     }
     for genre, keywords in hints.items():
@@ -176,8 +203,9 @@ def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
     Returns list of local file paths.
     """
     genre = classify_genre_llm(track_title)
-    keywords = GENRE_KEYWORDS.get(genre, GENRE_KEYWORDS["default"])
-    logger.info(f"Genre: {genre}, keywords: {keywords[:3]}")
+    keywords = list(GENRE_KEYWORDS.get(genre, GENRE_KEYWORDS["default"]))
+    random.shuffle(keywords)  # vary which keywords get used each run
+    logger.info(f"Genre: {genre}, using {len(keywords)} keywords")
 
     downloaded = []
     used_ids = set()
