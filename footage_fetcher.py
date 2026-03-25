@@ -124,18 +124,18 @@ ARCHIVE_QUERIES = {
     ],
 }
 
-# How many clips from each source per genre (archive, pexels)
-# Genres that benefit from cartoons/vintage get more archive clips
-SOURCE_MIX = {
-    "hype":        (5, 7),   # 5 archive, 7 pexels
-    "phonk":       (4, 8),
-    "trap":        (4, 8),
-    "electronic":  (3, 9),
-    "orchestral":  (4, 8),
-    "chill":       (1, 11),  # chill stays mostly pexels
-    "lofi":        (1, 11),
-    "ambient":     (1, 11),
-    "default":     (3, 9),
+# Which source to use per genre — "archive" or "pexels" (never mixed)
+# Keeps visual cohesion: all vintage OR all modern stock footage
+SOURCE_STYLE = {
+    "hype":        "archive",   # cartoons, action clips
+    "phonk":       "archive",   # noir, dark vintage
+    "trap":        "archive",   # film noir, vintage
+    "electronic":  "pexels",    # modern neon/city footage
+    "orchestral":  "archive",   # epic vintage
+    "chill":       "pexels",    # modern nature/cozy
+    "lofi":        "pexels",    # modern cozy vibes
+    "ambient":     "pexels",    # modern nature/space
+    "default":     "pexels",    # modern stock
 }
 
 TARGET_CLIPS = 12
@@ -437,21 +437,19 @@ def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
     """
     genre = classify_genre_llm(track_title, bpm=bpm, energy=energy,
                                 brightness=brightness, texture=texture)
-    archive_target, pexels_target = SOURCE_MIX.get(genre, (3, 9))
-    logger.info(f"Genre: {genre} | Targets: {archive_target} archive + {pexels_target} pexels")
+    style = SOURCE_STYLE.get(genre, "pexels")
+    logger.info(f"Genre: {genre} | Style: {style}")
 
-    # Fetch from both sources
-    archive_clips = _fetch_archive(genre, archive_target, output_dir)
-    pexels_clips = _fetch_pexels(genre, pexels_target, output_dir)
+    # Use ONE source for visual cohesion — all vintage OR all modern
+    if style == "archive":
+        total = _fetch_archive(genre, num_clips, output_dir)
+        # Fall back to pexels if archive doesn't deliver enough
+        if len(total) < num_clips:
+            extra = _fetch_pexels(genre, num_clips - len(total), output_dir)
+            total.extend(extra)
+    else:
+        total = _fetch_pexels(genre, num_clips, output_dir)
 
-    # If one source underdelivered, fill from the other
-    total = archive_clips + pexels_clips
-    if len(total) < num_clips and len(pexels_clips) < pexels_target + archive_target:
-        extra_needed = num_clips - len(total)
-        extra = _fetch_pexels(genre, extra_needed, output_dir)
-        total.extend(extra)
-
-    # Shuffle so archive and pexels clips are interleaved
     random.shuffle(total)
 
     if not total:
@@ -462,6 +460,5 @@ def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
             if path:
                 total.append(path)
 
-    logger.info(f"Total footage: {len(total)} clips "
-                f"({len(archive_clips)} archive + {len(pexels_clips)} pexels)")
+    logger.info(f"Total footage: {len(total)} clips ({style})")
     return total

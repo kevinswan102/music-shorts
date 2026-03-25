@@ -260,25 +260,35 @@ def concat_segments(segment_paths: List[str], output_path: str) -> str:
 def add_text_overlay(video_path: str, track_name: str, artist: str,
                       output_path: str, total_duration: float = 30.0) -> str:
     """
-    Burn track name + end CTA onto the video using ffmpeg drawtext.
-    - Song title: subtle, always visible, centered near bottom
-    - CTA: "Stream now" appears last 4 seconds
+    Burn text overlays onto the video using ffmpeg drawtext.
+    - Song title: fades in over first 2 seconds, centered
+    - Artist name: below title, smaller, fades in slightly after
+    - CTA: "Stream now - link in description" appears last 4 seconds
     """
-    # Escape characters that break ffmpeg drawtext
-    safe_track = (track_name
-                  .replace("\\", "\\\\")
-                  .replace("'", "\u2019")  # replace apostrophe with unicode right quote
-                  .replace(":", "\\:")
-                  .replace('"', '\\"'))
+    def _escape(text: str) -> str:
+        return (text
+                .replace("\\", "\\\\")
+                .replace("'", "\u2019")
+                .replace(":", "\\:")
+                .replace('"', '\\"'))
 
+    safe_track = _escape(track_name)
+    safe_artist = _escape(artist)
     cta_start = max(0, total_duration - 4.0)
 
-    # Use separate -vf filters joined by semicolons to avoid comma conflicts
     filter_text = (
+        # Song title — fades in first 2 seconds, stays visible
         f"drawtext=text='{safe_track}':"
-        f"fontsize=36:fontcolor=white@0.7:"
-        f"borderw=1:bordercolor=black@0.5:"
-        f"x=(w-text_w)/2:y=h-180,"
+        f"fontsize=44:fontcolor=white@0.85:"
+        f"borderw=2:bordercolor=black@0.5:"
+        f"x=(w-text_w)/2:y=h-200,"
+        # Artist name — smaller, below title, fades in after 0.5s
+        f"drawtext=text='{safe_artist}':"
+        f"fontsize=30:fontcolor=white@0.6:"
+        f"borderw=1:bordercolor=black@0.4:"
+        f"x=(w-text_w)/2:y=h-155:"
+        f"enable='gte(t\\,0.5)',"
+        # CTA — appears last 4 seconds, centered
         f"drawtext=text='Stream now - link in description':"
         f"fontsize=40:fontcolor=white@0.9:"
         f"borderw=2:bordercolor=black@0.6:"
