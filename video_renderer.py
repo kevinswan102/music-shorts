@@ -73,6 +73,21 @@ VISUAL_THEMES = {
         "accent": None,
         "accent_chance": 0.0,
     },
+    "psychedelic": {
+        "grade": "eq=saturation=1.8:contrast=1.2,colorbalance=rs=0.10:gs=0.10:bs=0.15,vignette=PI/5",
+        "accent": "hue=h=60",
+        "accent_chance": 0.25,
+    },
+    "dark": {
+        "grade": "eq=saturation=0.3:contrast=1.6:brightness=-0.05,colorbalance=rs=0.05:gs=-0.08:bs=0.02,vignette=PI/3",
+        "accent": "eq=brightness=-0.1:contrast=1.7",
+        "accent_chance": 0.1,
+    },
+    "rock": {
+        "grade": "eq=saturation=0.9:contrast=1.4,colorbalance=rs=0.08:gs=0.0:bs=-0.05,vignette=PI/4",
+        "accent": "eq=brightness=0.1:contrast=1.5",
+        "accent_chance": 0.15,
+    },
     "default": {
         "grade": COLOR_GRADE_FILTERS,
         "accent": None,

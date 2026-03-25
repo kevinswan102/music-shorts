@@ -19,7 +19,8 @@ PEXELS_BASE_URL = "https://api.pexels.com/videos"
 ARCHIVE_SEARCH_URL = "https://archive.org/advancedsearch.php"
 ARCHIVE_HEADERS = {"User-Agent": "MusicShortsBot/1.0 (Python; automated-shorts)"}
 
-# Genre -> Pexels search keywords (shuffled each run for variety)
+# Visual mood -> Pexels search keywords (shuffled each run for variety)
+# These are VISUAL MOODS, not strict music genres — matches what looks right
 PEXELS_KEYWORDS = {
     "electronic": [
         "neon city night", "futuristic tunnel", "laser lights club",
@@ -56,6 +57,24 @@ PEXELS_KEYWORDS = {
         "luxury car driving", "helicopter aerial city", "lion roaring",
         "smoke hookah", "crowd mosh pit", "graffiti art",
         "chain necklace", "nightclub vip", "fireworks night",
+    ],
+    "psychedelic": [
+        "kaleidoscope colorful", "ink drop water colorful", "fractal zoom",
+        "lava lamp close up", "oil water colors", "paint mixing swirl",
+        "soap bubble rainbow", "prism light rainbow", "aurora sky timelapse",
+        "mushroom forest macro", "deep ocean bioluminescence", "northern lights",
+    ],
+    "dark": [
+        "thunderstorm clouds", "dark forest fog", "abandoned building",
+        "fire burning dark", "smoke rising dark", "storm ocean night",
+        "wolf eyes dark", "raven flying", "eclipse moon",
+        "candle flame wind", "dark water reflection", "lightning strike night",
+    ],
+    "rock": [
+        "concert crowd lights", "guitar close up", "drum sticks playing",
+        "stadium concert lights", "fire pyrotechnics stage", "crowd surfing",
+        "electric guitar sparks", "smoke stage lights", "headbanging crowd",
+        "motorcycle highway", "desert road driving", "mountain storm",
     ],
     "ambient": [
         "underwater coral reef", "aurora borealis sky", "space earth orbit",
@@ -124,17 +143,20 @@ ARCHIVE_QUERIES = {
     ],
 }
 
-# Which source to use per genre — "archive" or "pexels" (never mixed)
+# Which source to use per mood — "archive" or "pexels" (never mixed)
 # Keeps visual cohesion: all vintage OR all modern stock footage
 SOURCE_STYLE = {
     "hype":        "archive",   # cartoons, action clips
     "phonk":       "archive",   # noir, dark vintage
     "trap":        "archive",   # film noir, vintage
-    "electronic":  "pexels",    # modern neon/city footage
     "orchestral":  "archive",   # epic vintage
+    "electronic":  "pexels",    # modern neon/city footage
     "chill":       "pexels",    # modern nature/cozy
     "lofi":        "pexels",    # modern cozy vibes
     "ambient":     "pexels",    # modern nature/space
+    "psychedelic": "pexels",    # colorful abstract modern
+    "dark":        "pexels",    # modern dark/moody
+    "rock":        "pexels",    # modern concert/road footage
     "default":     "pexels",    # modern stock
 }
 
@@ -143,9 +165,12 @@ TARGET_CLIPS = 12
 # ─── Genre Classification ───────────────────────────────────
 
 def classify_genre(track_title: str) -> str:
-    """Simple keyword-based genre classification from track title."""
+    """Simple keyword-based visual mood classification from track title."""
     title_lower = track_title.lower()
     hints = {
+        "psychedelic": ["psychedelic", "trippy", "acid", "fractal", "kaleidoscope", "experimental", "weird"],
+        "dark": ["ghost", "dark", "death", "horror", "scream", "demon", "shadow", "nightmare", "doom", "grave", "blood", "tears"],
+        "rock": ["rock", "guitar", "punk", "grunge", "metal", "shred"],
         "phonk": ["phonk", "drift", "cowbell", "memphis"],
         "trap": ["trap", "drill", "gang", "menace", "opp", "kill", "concealed"],
         "hype": ["hype", "engine", "warning", "knockout", "fight", "insanity"],
@@ -168,25 +193,20 @@ def classify_genre(track_title: str) -> str:
 def classify_genre_llm(track_title: str, bpm: float = 0.0,
                        energy: str = "", brightness: str = "",
                        texture: str = "") -> str:
-    """Use LLM to classify genre with audio analysis context."""
+    """Use LLM to classify into a visual mood using title + audio features."""
     try:
         from llm_client import get_llm_client, llm_available
         if not llm_available():
             return classify_genre(track_title)
 
         client, model = get_llm_client()
-        genres = list(PEXELS_KEYWORDS.keys())
+        moods = list(PEXELS_KEYWORDS.keys())
 
         audio_hint = ""
         if bpm > 0:
             audio_hint = (
-                f"\nAudio analysis: BPM={bpm:.0f}, "
-                f"energy={energy}, brightness={brightness}, texture={texture}. "
-                f"IMPORTANT: Use audio features over title. Examples: "
-                f"aggressive+distorted at any BPM = hype or phonk. "
-                f"calm+clean+slow = chill, lofi, or ambient. "
-                f"moderate+mid = electronic or trap. "
-                f"aggressive+bright = hype. aggressive+dark = phonk."
+                f"\nAudio: BPM={bpm:.0f}, energy={energy}, "
+                f"brightness={brightness}, texture={texture}."
             )
 
         resp = client.chat.completions.create(
@@ -194,18 +214,32 @@ def classify_genre_llm(track_title: str, bpm: float = 0.0,
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Classify this music track into exactly one genre "
-                    f"from this list: {genres}. "
-                    f"Track title: \"{track_title}\".{audio_hint}\n"
-                    f"Reply with ONLY the genre name, nothing else."
+                    f"Pick the VISUAL MOOD that best matches this music track. "
+                    f"This determines what VIDEO FOOTAGE to show, not strict music genre.\n"
+                    f"Options: {moods}\n"
+                    f"Track: \"{track_title}\"{audio_hint}\n\n"
+                    f"Guide:\n"
+                    f"- psychedelic: trippy, experimental, weird, acid, colorful chaos\n"
+                    f"- dark: heavy metal, screamo, horror, intense, ghostly, eerie\n"
+                    f"- rock: guitars, punk, grunge, alt rock, concert energy\n"
+                    f"- phonk: memphis, drift, cowbell, dark bass\n"
+                    f"- hype: high energy, fight, sports, adrenaline\n"
+                    f"- trap: hip-hop, drill, street, luxury\n"
+                    f"- electronic: EDM, synth, techno, futuristic\n"
+                    f"- chill: relaxed, peaceful, soft, mellow\n"
+                    f"- lofi: cozy, study, warm, nostalgic\n"
+                    f"- ambient: space, ethereal, atmospheric, minimal\n"
+                    f"- orchestral: epic, cinematic, dramatic, classical\n"
+                    f"- default: if nothing fits well\n\n"
+                    f"Reply with ONLY one word from the list."
                 ),
             }],
             max_tokens=20,
             temperature=0.0,
         )
-        genre = resp.choices[0].message.content.strip().lower()
-        if genre in PEXELS_KEYWORDS:
-            return genre
+        mood = resp.choices[0].message.content.strip().lower()
+        if mood in PEXELS_KEYWORDS:
+            return mood
         return classify_genre(track_title)
     except Exception as e:
         logger.warning(f"LLM genre classification failed: {e}")
