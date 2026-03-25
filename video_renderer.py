@@ -140,22 +140,16 @@ def concat_segments(segment_paths: List[str], output_path: str) -> str:
 def add_text_overlay(video_path: str, track_name: str, artist: str,
                       output_path: str) -> str:
     """
-    Burn track name + artist text onto the video using ffmpeg drawtext.
-    Positioned at bottom-center with semi-transparent background.
+    Burn track name onto the video using ffmpeg drawtext.
+    Subtle, transparent style — song title only (no artist, it's in YT title).
     """
     safe_track = track_name.replace("'", "\\'").replace(":", "\\:").replace('"', '\\"')
-    safe_artist = artist.replace("'", "\\'").replace(":", "\\:").replace('"', '\\"')
 
     filter_text = (
         f"drawtext=text='{safe_track}':"
-        f"fontsize=48:fontcolor=white:"
-        f"borderw=2:bordercolor=black:"
-        f"x=(w-text_w)/2:y=h-220:"
-        f"box=1:boxcolor=black@0.4:boxborderw=12,"
-        f"drawtext=text='{safe_artist}':"
-        f"fontsize=32:fontcolor=#CCCCCC:"
-        f"borderw=1:bordercolor=black:"
-        f"x=(w-text_w)/2:y=h-155"
+        f"fontsize=36:fontcolor=white@0.7:"
+        f"borderw=1:bordercolor=black@0.5:"
+        f"x=(w-text_w)/2:y=h-180"
     )
 
     cmd = [

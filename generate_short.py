@@ -32,7 +32,38 @@ from footage_fetcher import fetch_footage
 from video_renderer import render_short
 
 
+import re
+
 ARTIST_NAME = os.getenv("ARTIST_NAME", "Unknown Artist")
+
+
+def clean_song_title(raw_title: str) -> str:
+    """
+    Strip artist prefix, suffixes like '(Official Visualizer)', and common clutter.
+    'Star Drift - Star Gazing (Synthwave Visualizer)' → 'Star Gazing'
+    '[FREE] Mac Miller x Jaden Type Beat | "Summer Love"' → 'Summer Love'
+    """
+    title = raw_title.strip()
+    # Strip "Artist - " prefix (anything before first " - ")
+    if " - " in title:
+        title = title.split(" - ", 1)[1].strip()
+    # Strip parenthetical suffixes like (Official Visualizer), (Slowed), (Sped Up)
+    title = re.sub(r'\s*\((?:Official\s+)?(?:Visualizer|Audio|Video|Lyric(?:s)?|Music\s+Video)(?:\s+\w+)?\)\s*$', '', title, flags=re.IGNORECASE)
+    # Strip [FREE], [FREE FOR PROFIT], [FREE DOWNLOAD] prefixes
+    title = re.sub(r'^\[(?:FREE(?:\s+(?:FOR\s+PROFIT|DOWNLOAD))?)\]\s*', '', title, flags=re.IGNORECASE)
+    # Strip "No Copyright Song:" type prefixes
+    title = re.sub(r'^(?:No\s+Copyright\s+Song:\s*)', '', title, flags=re.IGNORECASE)
+    # Strip "Type Beat" suffixes and everything before the pipe/dash
+    if " Type Beat" in title:
+        # "[FREE] Future Type Beat - Royal Payne" → "Royal Payne"
+        for sep in [' - ', ' | ']:
+            if sep in title:
+                title = title.split(sep)[-1].strip()
+                break
+        title = re.sub(r'\s*Type\s+Beat.*$', '', title, flags=re.IGNORECASE)
+    # Strip surrounding quotes
+    title = title.strip('"\'')
+    return title.strip() or raw_title.strip()
 
 
 def generate_description(track_name: str, genre: str) -> str:
@@ -82,7 +113,9 @@ def main():
     if not track:
         logger.info("All tracks have been processed. Nothing to do.")
         sys.exit(0)
-    logger.info(f"Selected: {track['title']} (ID: {track['id']})")
+    raw_title = track["title"]
+    song_title = clean_song_title(raw_title)
+    logger.info(f"Selected: {raw_title} → display as: {song_title} (ID: {track['id']})")
 
     # Step 3: Download audio
     logger.info("Step 3: Downloading audio...")
@@ -113,7 +146,7 @@ def main():
 
     # Step 5: Fetch footage
     logger.info("Step 5: Fetching Pexels stock footage...")
-    footage_paths = fetch_footage(track["title"])
+    footage_paths = fetch_footage(song_title)
     if not footage_paths:
         logger.error("No footage fetched. Exiting.")
         sys.exit(1)
@@ -125,7 +158,7 @@ def main():
         audio_segment_path=segment_path,
         footage_paths=footage_paths,
         beat_intervals=beat_intervals,
-        track_name=track["title"],
+        track_name=song_title,
         artist=ARTIST_NAME,
     )
     if not final_video:
@@ -136,14 +169,14 @@ def main():
     # Step 7: Generate description + upload
     logger.info("Step 7: Generating description and uploading...")
     from footage_fetcher import classify_genre_llm
-    genre = classify_genre_llm(track["title"])
-    description_text = generate_description(track["title"], genre)
+    genre = classify_genre_llm(song_title)
+    description_text = generate_description(song_title, genre)
 
     from youtube_uploader import YouTubeUploader
     uploader = YouTubeUploader()
     result = uploader.upload_video({
         "video_path": final_video,
-        "track_name": track["title"],
+        "track_name": song_title,
         "artist": ARTIST_NAME,
         "genre": genre,
         "description_text": description_text,

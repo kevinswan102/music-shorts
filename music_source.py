@@ -59,7 +59,7 @@ def _parse_flat_playlist(stdout: str) -> List[Dict]:
 
 def list_channel_videos() -> List[Dict]:
     """
-    Scan the channel's Releases tab (albums) + Videos tab.
+    Scan the channel's Releases tab (albums only, no Videos/Shorts).
     Expands each album playlist into individual tracks.
     Flat-playlist only fetches IDs/titles (no actual download), works from CI.
     """
@@ -102,22 +102,7 @@ def list_channel_videos() -> List[Dict]:
     except subprocess.TimeoutExpired:
         logger.warning("Releases tab scan timed out")
 
-    # --- 2. Also scan Videos tab for any tracks not in albums ---
-    videos_cmd = [
-        "yt-dlp", "--flat-playlist", "--dump-json", "--no-warnings",
-        f"{CHANNEL_URL}/videos",
-    ]
-    try:
-        result = subprocess.run(videos_cmd, capture_output=True, text=True, timeout=120)
-        if result.returncode == 0:
-            for track in _parse_flat_playlist(result.stdout):
-                if track["id"] not in seen_ids:
-                    seen_ids.add(track["id"])
-                    all_videos.append(track)
-    except subprocess.TimeoutExpired:
-        logger.warning("Videos tab scan timed out")
-
-    logger.info(f"Found {len(all_videos)} unique tracks on channel")
+    logger.info(f"Found {len(all_videos)} unique tracks from Releases")
     return all_videos
 
 

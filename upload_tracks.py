@@ -77,18 +77,6 @@ def list_channel_videos():
     except subprocess.TimeoutExpired:
         logger.warning("Releases tab scan timed out")
 
-    # 2. Also scan Videos tab for any tracks not in albums
-    videos_cmd = ["yt-dlp", "--flat-playlist", "--dump-json", "--no-warnings", f"{CHANNEL_URL}/videos"]
-    try:
-        result = subprocess.run(videos_cmd, capture_output=True, text=True, timeout=120)
-        if result.returncode == 0:
-            for track in _parse_lines(result.stdout):
-                if track["id"] not in seen_ids:
-                    seen_ids.add(track["id"])
-                    videos.append(track)
-    except subprocess.TimeoutExpired:
-        logger.warning("Videos tab scan timed out")
-
     return videos
 
 

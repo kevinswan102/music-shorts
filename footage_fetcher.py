@@ -50,7 +50,7 @@ GENRE_KEYWORDS = {
     ],
 }
 
-TARGET_CLIPS = 6
+TARGET_CLIPS = 12
 
 
 def classify_genre(track_title: str) -> str:
@@ -188,7 +188,7 @@ def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
 
         time.sleep(0.5)  # respect rate limits
 
-        videos = search_videos(keyword, per_page=5, orientation="portrait")
+        videos = search_videos(keyword, per_page=10, orientation="portrait")
         random.shuffle(videos)
 
         for video in videos:
