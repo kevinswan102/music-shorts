@@ -4,6 +4,7 @@ Loads an MP3, detects BPM and beat timestamps, finds the most energetic
 30-second window (the "drop"), and returns beat-aligned cut points.
 """
 
+import os
 import librosa
 import numpy as np
 import soundfile as sf
@@ -56,18 +57,24 @@ def analyze_track(audio_path: str) -> dict:
     target_dur = min(target_dur, duration)  # can't exceed track length
     logger.info(f"Target Short duration: {target_dur:.0f}s (BPM: {bpm:.0f})")
 
-    # Find the most energetic window of target duration
-    best_start, best_end = _find_best_window(onset_env, sr, duration, target_dur)
+    # Find multiple non-overlapping energetic windows
+    num_shorts = int(os.environ.get("NUM_SHORTS", "2"))
+    all_windows = _find_top_windows(onset_env, sr, duration, target_dur, n=num_shorts)
 
-    # Snap to bar boundaries so the Short loops cleanly
+    # Snap each to bar boundaries for clean looping
     bar_duration = 4 * (60.0 / bpm)  # 4 beats per bar
-    best_start, best_end = _snap_to_bars(
-        best_start, best_end, beat_times, bar_duration, duration
-    )
-    logger.info(f"Bar-aligned window: {best_start:.2f}s - {best_end:.2f}s "
-                f"({(best_end - best_start):.1f}s, bar={bar_duration:.2f}s)")
+    snapped_windows = []
+    for ws, we in all_windows:
+        ws, we = _snap_to_bars(ws, we, beat_times, bar_duration, duration)
+        snapped_windows.append((ws, we))
+    logger.info(f"Found {len(snapped_windows)} bar-aligned windows (bar={bar_duration:.2f}s)")
 
-    # Filter beats to only those within the chosen window
+    # Primary window (best energy)
+    best_start, best_end = snapped_windows[0]
+    logger.info(f"Primary window: {best_start:.2f}s - {best_end:.2f}s "
+                f"({(best_end - best_start):.1f}s)")
+
+    # Filter beats to only those within the primary window
     window_beats = [b for b in beat_times if best_start <= b <= best_end]
 
     # Audio features for genre classification
@@ -90,6 +97,7 @@ def analyze_track(audio_path: str) -> dict:
         "all_beat_times": beat_times,
         "best_start": best_start,
         "best_end": best_end,
+        "all_windows": snapped_windows,
         "duration": duration,
         "sr": sr,
         "energy": energy_tag,
@@ -133,6 +141,54 @@ def _find_best_window(onset_env: np.ndarray, sr: int,
         best_start = max(0.0, best_end - target_duration)
 
     return best_start, best_end
+
+
+def _find_top_windows(onset_env: np.ndarray, sr: int,
+                       track_duration: float,
+                       target_duration: float = 30.0,
+                       n: int = 3) -> List[Tuple[float, float]]:
+    """
+    Find top N non-overlapping windows ranked by energy.
+    Returns list of (start, end) tuples.
+    """
+    hop_length = 512
+    frame_duration = hop_length / sr
+    window_frames = int(target_duration / frame_duration)
+
+    if len(onset_env) <= window_frames:
+        return [(0.0, min(track_duration, target_duration))]
+
+    hop_frames = max(1, int(WINDOW_HOP / frame_duration))
+
+    # Score all windows
+    scored = []
+    for start_frame in range(0, len(onset_env) - window_frames, hop_frames):
+        window = onset_env[start_frame: start_frame + window_frames]
+        score = float(np.mean(window))
+        start_time = start_frame * frame_duration
+        scored.append((score, start_time))
+
+    scored.sort(reverse=True)
+
+    # Greedily pick non-overlapping windows
+    results = []
+    for score, start_time in scored:
+        end_time = start_time + target_duration
+        if end_time > track_duration:
+            end_time = track_duration
+            start_time = max(0.0, end_time - target_duration)
+        # Check overlap with already picked windows
+        overlaps = False
+        for rs, re_ in results:
+            if start_time < re_ and end_time > rs:
+                overlaps = True
+                break
+        if not overlaps:
+            results.append((start_time, end_time))
+            if len(results) >= n:
+                break
+
+    return results
 
 
 def _snap_to_bars(best_start: float, best_end: float,

@@ -4,12 +4,9 @@ generate_short.py — Main entry point for music-shorts pipeline.
 
 1. Scan source channel for tracks
 2. Pick next unprocessed track
-3. Download audio, analyze beats, find best 30s section
-4. Fetch Pexels stock footage matching the track vibe
-5. Render beat-synced video with color grading + text overlay
-6. Generate LLM description + tags
-7. Upload to YouTube
-8. Update archive.txt
+3. Download audio, analyze beats, find multiple best sections
+4. For each section: fetch footage, render beat-synced video, upload
+5. Update archive.txt
 """
 
 import os
@@ -35,6 +32,7 @@ from video_renderer import render_short
 import re
 
 ARTIST_NAME = os.getenv("ARTIST_NAME", "Unknown Artist")
+NUM_SHORTS = int(os.getenv("NUM_SHORTS", "2"))
 
 
 def clean_song_title(raw_title: str) -> str:
@@ -144,9 +142,90 @@ def generate_poem(track_name: str, genre: str) -> list:
         return []
 
 
+def render_and_upload_short(audio_path: str, analysis: dict,
+                             window_start: float, window_end: float,
+                             song_title: str, genre: str,
+                             bpm: float, energy: str, brightness: str,
+                             texture: str, short_num: int) -> bool:
+    """Render and upload a single short from a specific audio window.
+    Returns True on success."""
+    logger.info(f"--- Short {short_num}: {window_start:.1f}s - {window_end:.1f}s ---")
+
+    segment_path = f"/tmp/audio_segment_{short_num}.wav"
+    extract_audio_segment(audio_path, window_start, window_end, segment_path)
+
+    segment_duration = window_end - window_start
+    beat_intervals = get_beat_intervals(
+        [b for b in analysis["all_beat_times"] if window_start <= b <= window_end],
+        start_offset=window_start,
+        segment_duration=segment_duration,
+    )
+    logger.info(f"Beat intervals: {len(beat_intervals)} cuts")
+
+    # Fetch fresh footage for each short (different clips)
+    logger.info(f"Fetching footage for short {short_num}...")
+    footage_paths = fetch_footage(song_title, bpm=bpm, energy=energy,
+                                   brightness=brightness, texture=texture)
+    if not footage_paths:
+        logger.error(f"No footage for short {short_num}. Skipping.")
+        return False
+
+    # Generate unique poem for each short
+    poem_lines = generate_poem(song_title, genre)
+    if poem_lines:
+        logger.info(f"Poem {short_num}: {poem_lines}")
+
+    # Render
+    final_video = render_short(
+        audio_segment_path=segment_path,
+        footage_paths=footage_paths,
+        beat_intervals=beat_intervals,
+        track_name=song_title,
+        artist=ARTIST_NAME,
+        genre=genre,
+        poem_lines=poem_lines,
+    )
+    if not final_video:
+        logger.error(f"Render failed for short {short_num}. Skipping.")
+        return False
+    logger.info(f"Short {short_num} rendered: {final_video}")
+
+    # Generate description + upload
+    description_text = generate_description(song_title, genre)
+    from youtube_uploader import YouTubeUploader
+    uploader = YouTubeUploader()
+    result = uploader.upload_video({
+        "video_path": final_video,
+        "track_name": song_title,
+        "artist": ARTIST_NAME,
+        "genre": genre,
+        "description_text": description_text,
+    })
+
+    success = False
+    if result.get("success"):
+        logger.info(f"Short {short_num} uploaded: {result.get('video_url')}")
+        success = True
+    elif result.get("mock_upload"):
+        logger.info(f"Short {short_num} mock upload: {result.get('would_upload', {}).get('title', '')}")
+        success = True
+    else:
+        logger.error(f"Short {short_num} upload failed: {result.get('error')}")
+
+    # Cleanup
+    for path in [segment_path, final_video] + footage_paths:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    gc.collect()
+
+    return success
+
+
 def main():
     logger.info("=" * 60)
-    logger.info("MUSIC SHORTS GENERATOR")
+    logger.info(f"MUSIC SHORTS GENERATOR (NUM_SHORTS={NUM_SHORTS})")
     logger.info("=" * 60)
 
     # Step 1: Scan channel
@@ -175,102 +254,47 @@ def main():
         sys.exit(1)
     logger.info(f"Audio downloaded: {audio_path}")
 
-    # Step 4: Analyze beats
-    logger.info("Step 4: Analyzing beats and finding best section...")
+    # Step 4: Analyze beats — finds multiple windows
+    logger.info("Step 4: Analyzing beats and finding best sections...")
     analysis = analyze_track(audio_path)
-    logger.info(
-        f"BPM: {analysis['bpm']:.1f}, "
-        f"Best window: {analysis['best_start']:.1f}s - {analysis['best_end']:.1f}s"
-    )
-
-    segment_path = "/tmp/audio_segment.wav"
-    extract_audio_segment(
-        audio_path, analysis["best_start"], analysis["best_end"], segment_path
-    )
-
-    segment_duration = analysis["best_end"] - analysis["best_start"]
-    beat_intervals = get_beat_intervals(
-        analysis["beat_times"],
-        start_offset=analysis["best_start"],
-        segment_duration=segment_duration,
-    )
-    logger.info(f"Beat intervals: {len(beat_intervals)} cuts")
-
-    # Step 5: Classify genre (with audio analysis) + fetch footage
     bpm = analysis["bpm"]
     energy = analysis.get("energy", "")
     brightness = analysis.get("brightness", "")
     texture = analysis.get("texture", "")
+
+    # Step 5: Classify genre
     from footage_fetcher import classify_genre_llm
     genre = classify_genre_llm(song_title, bpm=bpm, energy=energy,
                                 brightness=brightness, texture=texture)
     logger.info(f"Genre: {genre} (BPM: {bpm:.0f}, {energy}/{brightness}/{texture})")
 
-    logger.info("Step 5: Fetching footage...")
-    footage_paths = fetch_footage(song_title, bpm=bpm, energy=energy,
-                                   brightness=brightness, texture=texture)
-    if not footage_paths:
-        logger.error("No footage fetched. Exiting.")
-        sys.exit(1)
-    logger.info(f"Fetched {len(footage_paths)} footage clips")
+    # Step 6: Render + upload each short from different windows
+    windows = analysis.get("all_windows", [(analysis["best_start"], analysis["best_end"])])
+    logger.info(f"Generating {len(windows)} shorts from different sections")
 
-    # Step 5b: Generate engagement poem
-    poem_lines = generate_poem(song_title, genre)
-    if poem_lines:
-        logger.info(f"Poem: {poem_lines}")
+    successes = 0
+    for i, (ws, we) in enumerate(windows):
+        ok = render_and_upload_short(
+            audio_path, analysis, ws, we,
+            song_title, genre, bpm, energy, brightness, texture,
+            short_num=i + 1,
+        )
+        if ok:
+            successes += 1
 
-    # Step 6: Render video
-    logger.info("Step 6: Rendering beat-synced video...")
-    final_video = render_short(
-        audio_segment_path=segment_path,
-        footage_paths=footage_paths,
-        beat_intervals=beat_intervals,
-        track_name=song_title,
-        artist=ARTIST_NAME,
-        genre=genre,
-        poem_lines=poem_lines,
-    )
-    if not final_video:
-        logger.error("Video rendering failed. Exiting.")
-        sys.exit(1)
-    logger.info(f"Video rendered: {final_video}")
-
-    # Step 7: Generate description + upload
-    logger.info("Step 7: Generating description and uploading...")
-    description_text = generate_description(song_title, genre)
-
-    from youtube_uploader import YouTubeUploader
-    uploader = YouTubeUploader()
-    result = uploader.upload_video({
-        "video_path": final_video,
-        "track_name": song_title,
-        "artist": ARTIST_NAME,
-        "genre": genre,
-        "description_text": description_text,
-    })
-
-    if result.get("success"):
-        logger.info(f"Upload successful: {result.get('video_url')}")
-    elif result.get("mock_upload"):
-        logger.info(f"Mock upload (dev mode): {result.get('would_upload', {}).get('title', '')}")
-    else:
-        logger.error(f"Upload failed: {result.get('error')}")
-        sys.exit(1)
-
-    # Step 8: Update archive
-    logger.info("Step 8: Updating archive...")
+    # Step 7: Update archive
+    logger.info("Step 7: Updating archive...")
     save_to_archive(track["id"])
     logger.info(f"Archived: {track['id']}")
 
-    # Cleanup temp files
-    for path in [audio_path, segment_path, final_video] + footage_paths:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+    # Final cleanup
+    try:
+        os.unlink(audio_path)
+    except OSError:
+        pass
 
     gc.collect()
-    logger.info("DONE. Short generated and uploaded successfully.")
+    logger.info(f"DONE. {successes}/{len(windows)} shorts generated and uploaded.")
 
 
 if __name__ == "__main__":
