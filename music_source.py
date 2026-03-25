@@ -18,6 +18,14 @@ CHANNEL_URL = os.getenv(
     "STARDRIFT_CHANNEL_URL",
     "https://www.youtube.com/@official_stardrift",
 )
+COOKIES_FILE = os.getenv("YTDLP_COOKIES", "")
+
+
+def _cookies_args() -> List[str]:
+    """Return ['--cookies', path] if a cookies file is set and exists."""
+    if COOKIES_FILE and os.path.exists(COOKIES_FILE):
+        return ["--cookies", COOKIES_FILE]
+    return []
 
 
 def load_archive() -> set:
@@ -45,6 +53,7 @@ def list_channel_videos() -> List[Dict]:
         "--flat-playlist",
         "--dump-json",
         "--no-warnings",
+    ] + _cookies_args() + [
         f"{CHANNEL_URL}/videos",
     ]
     try:
@@ -104,6 +113,7 @@ def download_audio(video_url: str, output_dir: str = "/tmp") -> Optional[str]:
         "--audio-quality", "192K",
         "-o", output_template,
         "--no-playlist",
+    ] + _cookies_args() + [
         video_url,
     ]
     try:

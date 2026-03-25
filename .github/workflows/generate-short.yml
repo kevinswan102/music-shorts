@@ -39,6 +39,9 @@ jobs:
           pip install -r requirements.txt
           pip install -U yt-dlp
 
+      - name: Decode YouTube cookies
+        run: echo "${{ secrets.YOUTUBE_COOKIES }}" | base64 -d > /tmp/cookies.txt
+
       - name: Run generator
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
@@ -51,6 +54,7 @@ jobs:
           LLM_PROVIDER: 'groq'
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           STARDRIFT_CHANNEL_URL: 'https://www.youtube.com/@official_stardrift'
+          YTDLP_COOKIES: /tmp/cookies.txt
         run: python generate_short.py
 
       - name: Commit archive.txt
