@@ -1,7 +1,7 @@
 """
-Footage Fetcher — Pexels API search + download
-Searches for vertical stock footage clips matching the track's vibe,
-downloads them, and returns local file paths.
+Footage Fetcher — Pexels + Archive.org public domain content
+Mixes stock footage (Pexels) with public domain cartoons/vintage clips
+(Archive.org) based on genre classification.
 """
 
 import os
@@ -10,14 +10,17 @@ import random
 import logging
 import requests
 from typing import List, Dict, Optional
+from urllib.parse import quote_plus
 
 logger = logging.getLogger(__name__)
 
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
 PEXELS_BASE_URL = "https://api.pexels.com/videos"
+ARCHIVE_SEARCH_URL = "https://archive.org/advancedsearch.php"
+ARCHIVE_HEADERS = {"User-Agent": "MusicShortsBot/1.0 (Python; automated-shorts)"}
 
 # Genre -> Pexels search keywords (shuffled each run for variety)
-GENRE_KEYWORDS = {
+PEXELS_KEYWORDS = {
     "electronic": [
         "neon city night", "futuristic tunnel", "laser lights club",
         "cyberpunk city street", "led lights party", "night drive city",
@@ -74,8 +77,70 @@ GENRE_KEYWORDS = {
     ],
 }
 
+# Genre -> Archive.org search queries for public domain content
+# These pull cartoons, vintage footage, retro clips
+ARCHIVE_QUERIES = {
+    "hype": [
+        ("superman", "fleischer_studios"),
+        ("popeye", "classic_cartoons"),
+        ("boxing", "prelinger"),
+        ("racing car", "prelinger"),
+        ("action cartoon", "classic_cartoons"),
+    ],
+    "phonk": [
+        ("noir detective", None),
+        ("dark city night", "prelinger"),
+        ("superman villain", "fleischer_studios"),
+        ("horror monster", "SciFi_Horror"),
+        ("thunder lightning", "prelinger"),
+    ],
+    "trap": [
+        ("gangster film noir", "film_noir"),
+        ("city night detective", None),
+        ("popeye fight", "classic_cartoons"),
+        ("gold rush", None),
+        ("explosion military", "prelinger"),
+    ],
+    "electronic": [
+        ("rocket space", "prelinger"),
+        ("atomic energy", "prelinger"),
+        ("futuristic city", "prelinger"),
+        ("robot mechanical", "prelinger"),
+        ("neon lights city", "prelinger"),
+    ],
+    "orchestral": [
+        ("superman flying", "fleischer_studios"),
+        ("castle knight", None),
+        ("war battle", "prelinger"),
+        ("eagle soaring", "prelinger"),
+        ("ancient ruins", "prelinger"),
+    ],
+    "default": [
+        ("betty boop", "classic_cartoons"),
+        ("felix cat", "classic_cartoons"),
+        ("funny cartoon", "classic_cartoons"),
+        ("color cartoon", "classic_cartoons"),
+        ("newsreel", "prelinger"),
+    ],
+}
+
+# How many clips from each source per genre (archive, pexels)
+# Genres that benefit from cartoons/vintage get more archive clips
+SOURCE_MIX = {
+    "hype":        (5, 7),   # 5 archive, 7 pexels
+    "phonk":       (4, 8),
+    "trap":        (4, 8),
+    "electronic":  (3, 9),
+    "orchestral":  (4, 8),
+    "chill":       (1, 11),  # chill stays mostly pexels
+    "lofi":        (1, 11),
+    "ambient":     (1, 11),
+    "default":     (3, 9),
+}
+
 TARGET_CLIPS = 12
 
+# ─── Genre Classification ───────────────────────────────────
 
 def classify_genre(track_title: str) -> str:
     """Simple keyword-based genre classification from track title."""
@@ -108,7 +173,7 @@ def classify_genre_llm(track_title: str) -> str:
             return classify_genre(track_title)
 
         client, model = get_llm_client()
-        genres = list(GENRE_KEYWORDS.keys())
+        genres = list(PEXELS_KEYWORDS.keys())
         resp = client.chat.completions.create(
             model=model,
             messages=[{
@@ -124,7 +189,7 @@ def classify_genre_llm(track_title: str) -> str:
             temperature=0.0,
         )
         genre = resp.choices[0].message.content.strip().lower()
-        if genre in GENRE_KEYWORDS:
+        if genre in PEXELS_KEYWORDS:
             return genre
         return classify_genre(track_title)
     except Exception as e:
@@ -132,19 +197,17 @@ def classify_genre_llm(track_title: str) -> str:
         return classify_genre(track_title)
 
 
-def search_videos(query: str, per_page: int = 10,
-                   orientation: str = "portrait") -> List[Dict]:
+# ─── Pexels Source ───────────────────────────────────────────
+
+def _pexels_search(query: str, per_page: int = 10,
+                    orientation: str = "portrait") -> List[Dict]:
     """Search Pexels for videos matching query."""
     if not PEXELS_API_KEY:
         logger.error("PEXELS_API_KEY not set")
         return []
 
     headers = {"Authorization": PEXELS_API_KEY}
-    params = {
-        "query": query,
-        "per_page": per_page,
-        "orientation": orientation,
-    }
+    params = {"query": query, "per_page": per_page, "orientation": orientation}
     try:
         resp = requests.get(
             f"{PEXELS_BASE_URL}/search",
@@ -157,8 +220,8 @@ def search_videos(query: str, per_page: int = 10,
         return []
 
 
-def download_video(video_info: Dict, output_dir: str = "/tmp",
-                    prefer_height: int = 1920) -> Optional[str]:
+def _pexels_download(video_info: Dict, output_dir: str = "/tmp",
+                      prefer_height: int = 1920) -> Optional[str]:
     """Download a Pexels video file. Prefers file closest to prefer_height."""
     files = video_info.get("video_files", [])
     if not files:
@@ -196,16 +259,10 @@ def download_video(video_info: Dict, output_dir: str = "/tmp",
         return None
 
 
-def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
-                   output_dir: str = "/tmp") -> List[str]:
-    """
-    High-level: classify genre, search Pexels, download clips.
-    Returns list of local file paths.
-    """
-    genre = classify_genre_llm(track_title)
-    keywords = list(GENRE_KEYWORDS.get(genre, GENRE_KEYWORDS["default"]))
-    random.shuffle(keywords)  # vary which keywords get used each run
-    logger.info(f"Genre: {genre}, using {len(keywords)} keywords")
+def _fetch_pexels(genre: str, num_clips: int, output_dir: str) -> List[str]:
+    """Fetch clips from Pexels for a genre."""
+    keywords = list(PEXELS_KEYWORDS.get(genre, PEXELS_KEYWORDS["default"]))
+    random.shuffle(keywords)
 
     downloaded = []
     used_ids = set()
@@ -213,12 +270,9 @@ def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
     for keyword in keywords:
         if len(downloaded) >= num_clips:
             break
-
-        time.sleep(0.5)  # respect rate limits
-
-        videos = search_videos(keyword, per_page=10, orientation="portrait")
+        time.sleep(0.5)
+        videos = _pexels_search(keyword, per_page=10, orientation="portrait")
         random.shuffle(videos)
-
         for video in videos:
             if len(downloaded) >= num_clips:
                 break
@@ -226,18 +280,170 @@ def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
             if vid_id in used_ids:
                 continue
             used_ids.add(vid_id)
-
-            path = download_video(video, output_dir=output_dir)
+            path = _pexels_download(video, output_dir=output_dir)
             if path:
                 downloaded.append(path)
 
-    if not downloaded:
-        logger.warning("No footage found, trying fallback search")
-        videos = search_videos("abstract motion", per_page=10)
-        for video in videos[:num_clips]:
-            path = download_video(video, output_dir=output_dir)
-            if path:
-                downloaded.append(path)
-
-    logger.info(f"Fetched {len(downloaded)} footage clips")
     return downloaded
+
+
+# ─── Archive.org Source ──────────────────────────────────────
+
+def _archive_search(query: str, collection: Optional[str] = None,
+                     rows: int = 15) -> List[Dict]:
+    """Search archive.org for public domain video content."""
+    parts = [query, "mediatype:movies"]
+    if collection:
+        parts.append(f"collection:{collection}")
+    # Prefer items with known PD license or pre-1928
+    parts.append("(year:[1800 TO 1960] OR licenseurl:*publicdomain*)")
+
+    q = " AND ".join(parts)
+    params = {
+        "q": q,
+        "fl[]": ["identifier", "title", "year", "downloads"],
+        "sort[]": "downloads desc",
+        "rows": rows,
+        "output": "json",
+    }
+    try:
+        resp = requests.get(ARCHIVE_SEARCH_URL, params=params,
+                            headers=ARCHIVE_HEADERS, timeout=30)
+        resp.raise_for_status()
+        return resp.json().get("response", {}).get("docs", [])
+    except Exception as e:
+        logger.error(f"Archive.org search failed for '{query}': {e}")
+        return []
+
+
+def _archive_get_video_url(identifier: str, max_size_mb: float = 100) -> Optional[str]:
+    """Get the best video download URL for an archive.org item."""
+    try:
+        resp = requests.get(
+            f"https://archive.org/metadata/{identifier}/files",
+            headers=ARCHIVE_HEADERS, timeout=20,
+        )
+        resp.raise_for_status()
+        files = resp.json().get("result", [])
+    except Exception as e:
+        logger.error(f"Archive.org metadata failed for {identifier}: {e}")
+        return None
+
+    video_exts = {".mp4", ".ogv", ".avi", ".mpeg", ".mpg"}
+    candidates = []
+    for f in files:
+        name = f.get("name", "")
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in video_exts:
+            continue
+        size_mb = int(f.get("size", 0)) / (1024 * 1024)
+        if size_mb > max_size_mb or size_mb < 0.1:
+            continue
+        # Prefer mp4, smaller files
+        priority = 0 if ext == ".mp4" else 1
+        candidates.append((priority, size_mb, name))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: (x[0], x[1]))
+    best_name = candidates[0][2]
+    return f"https://archive.org/download/{identifier}/{quote_plus(best_name)}"
+
+
+def _archive_download(identifier: str, output_dir: str = "/tmp") -> Optional[str]:
+    """Download a video from archive.org."""
+    output_path = os.path.join(output_dir, f"archive_{identifier}.mp4")
+    if os.path.exists(output_path):
+        return output_path
+
+    url = _archive_get_video_url(identifier)
+    if not url:
+        return None
+
+    try:
+        logger.info(f"Downloading archive.org clip: {identifier}")
+        resp = requests.get(url, stream=True, headers=ARCHIVE_HEADERS, timeout=120)
+        resp.raise_for_status()
+        with open(output_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+        size_mb = os.path.getsize(output_path) / (1024 * 1024)
+        logger.info(f"Downloaded archive.org clip: {output_path} ({size_mb:.1f}MB)")
+        return output_path
+    except Exception as e:
+        logger.error(f"Archive.org download failed for {identifier}: {e}")
+        try:
+            os.unlink(output_path)
+        except OSError:
+            pass
+        return None
+
+
+def _fetch_archive(genre: str, num_clips: int, output_dir: str) -> List[str]:
+    """Fetch clips from archive.org for a genre."""
+    queries = list(ARCHIVE_QUERIES.get(genre, ARCHIVE_QUERIES["default"]))
+    random.shuffle(queries)
+
+    downloaded = []
+    used_ids = set()
+
+    for query, collection in queries:
+        if len(downloaded) >= num_clips:
+            break
+        time.sleep(1)  # be respectful to archive.org
+        results = _archive_search(query, collection=collection, rows=8)
+        random.shuffle(results)
+
+        for item in results:
+            if len(downloaded) >= num_clips:
+                break
+            identifier = item.get("identifier", "")
+            if not identifier or identifier in used_ids:
+                continue
+            used_ids.add(identifier)
+
+            path = _archive_download(identifier, output_dir=output_dir)
+            if path:
+                downloaded.append(path)
+
+    return downloaded
+
+
+# ─── Main Orchestrator ───────────────────────────────────────
+
+def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
+                   output_dir: str = "/tmp") -> List[str]:
+    """
+    High-level: classify genre, fetch from both Pexels + Archive.org,
+    shuffle together for variety.
+    """
+    genre = classify_genre_llm(track_title)
+    archive_target, pexels_target = SOURCE_MIX.get(genre, (3, 9))
+    logger.info(f"Genre: {genre} | Targets: {archive_target} archive + {pexels_target} pexels")
+
+    # Fetch from both sources
+    archive_clips = _fetch_archive(genre, archive_target, output_dir)
+    pexels_clips = _fetch_pexels(genre, pexels_target, output_dir)
+
+    # If one source underdelivered, fill from the other
+    total = archive_clips + pexels_clips
+    if len(total) < num_clips and len(pexels_clips) < pexels_target + archive_target:
+        extra_needed = num_clips - len(total)
+        extra = _fetch_pexels(genre, extra_needed, output_dir)
+        total.extend(extra)
+
+    # Shuffle so archive and pexels clips are interleaved
+    random.shuffle(total)
+
+    if not total:
+        logger.warning("No footage from any source, trying fallback")
+        videos = _pexels_search("abstract motion", per_page=10)
+        for video in videos[:num_clips]:
+            path = _pexels_download(video, output_dir=output_dir)
+            if path:
+                total.append(path)
+
+    logger.info(f"Total footage: {len(total)} clips "
+                f"({len(archive_clips)} archive + {len(pexels_clips)} pexels)")
+    return total
