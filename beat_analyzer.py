@@ -50,6 +50,20 @@ def analyze_track(audio_path: str) -> dict:
     # Filter beats to only those within the chosen window
     window_beats = [b for b in beat_times if best_start <= b <= best_end]
 
+    # Audio features for genre classification
+    rms = float(np.mean(librosa.feature.rms(y=y)))
+    spectral_centroid = float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)))
+    spectral_rolloff = float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr)))
+    zcr = float(np.mean(librosa.feature.zero_crossing_rate(y)))
+
+    energy_tag = "aggressive" if rms > 0.08 else ("moderate" if rms > 0.03 else "calm")
+    brightness_tag = "bright" if spectral_centroid > 3000 else ("mid" if spectral_centroid > 1500 else "dark")
+    noise_tag = "distorted" if zcr > 0.15 else ("textured" if zcr > 0.08 else "clean")
+
+    logger.info(f"Audio features: RMS={rms:.4f}({energy_tag}), "
+                f"centroid={spectral_centroid:.0f}({brightness_tag}), "
+                f"ZCR={zcr:.4f}({noise_tag})")
+
     return {
         "bpm": bpm,
         "beat_times": window_beats,
@@ -58,6 +72,11 @@ def analyze_track(audio_path: str) -> dict:
         "best_end": best_end,
         "duration": duration,
         "sr": sr,
+        "energy": energy_tag,
+        "brightness": brightness_tag,
+        "texture": noise_tag,
+        "rms": rms,
+        "spectral_centroid": spectral_centroid,
     }
 
 

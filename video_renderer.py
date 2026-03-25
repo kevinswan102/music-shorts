@@ -30,17 +30,55 @@ COLOR_GRADE_FILTERS = (
     "vignette=PI/4"
 )
 
-# Occasional FX filters applied to random segments for variety
-BEAT_FX = [
-    None,  # no extra FX (most common)
-    None,
-    None,
-    "negate",  # brief color inversion
-    "hue=h=180",  # hue shift
-    "eq=brightness=0.15:contrast=1.5",  # flash-bright
-    "hflip",  # mirror
-    "eq=saturation=0:contrast=1.4",  # B&W high contrast
-]
+# Visual themes — one is picked per video for cohesion
+# Each theme has a color grade override and optional per-segment accent
+VISUAL_THEMES = {
+    "phonk": {
+        "grade": "eq=saturation=0.4:contrast=1.5,colorbalance=rs=0.15:gs=-0.10:bs=0.25,vignette=PI/3",
+        "accent": "eq=brightness=0.12:contrast=1.6",  # occasional flash
+        "accent_chance": 0.15,
+    },
+    "hype": {
+        "grade": "eq=saturation=1.2:contrast=1.4,colorbalance=rs=0.08:gs=0.05:bs=-0.05,vignette=PI/5",
+        "accent": "eq=brightness=0.15:contrast=1.5",
+        "accent_chance": 0.2,
+    },
+    "chill": {
+        "grade": "eq=saturation=0.7:contrast=1.1,colorbalance=rs=-0.03:gs=0.04:bs=0.10,vignette=PI/4",
+        "accent": None,
+        "accent_chance": 0.0,
+    },
+    "lofi": {
+        "grade": "eq=saturation=0.5:contrast=1.2,colorbalance=rs=0.06:gs=0.02:bs=0.08,vignette=PI/3,noise=alls=12:allf=t",
+        "accent": None,
+        "accent_chance": 0.0,
+    },
+    "trap": {
+        "grade": "eq=saturation=0.8:contrast=1.3,colorbalance=rs=0.05:gs=-0.05:bs=0.15,vignette=PI/4",
+        "accent": "hflip",
+        "accent_chance": 0.1,
+    },
+    "ambient": {
+        "grade": "eq=saturation=0.6:contrast=1.0,colorbalance=rs=-0.05:gs=0.0:bs=0.12,vignette=PI/5",
+        "accent": None,
+        "accent_chance": 0.0,
+    },
+    "electronic": {
+        "grade": "eq=saturation=1.3:contrast=1.3,colorbalance=rs=-0.05:gs=0.08:bs=0.20,vignette=PI/4",
+        "accent": "hue=h=30",
+        "accent_chance": 0.12,
+    },
+    "orchestral": {
+        "grade": "eq=saturation=0.5:contrast=1.4,colorbalance=rs=0.10:gs=0.02:bs=-0.03,vignette=PI/3",
+        "accent": None,
+        "accent_chance": 0.0,
+    },
+    "default": {
+        "grade": COLOR_GRADE_FILTERS,
+        "accent": None,
+        "accent_chance": 0.0,
+    },
+}
 
 
 def _get_clip_duration(clip_path: str) -> float:
@@ -58,18 +96,20 @@ def _get_clip_duration(clip_path: str) -> float:
 
 def crop_to_vertical(clip_path: str, output_path: str,
                      seek_offset: float = 0.0, max_duration: float = 10.0,
-                     extra_vf: str = "") -> str:
+                     extra_vf: str = "", grade_override: str = "") -> str:
     """
     Crop + color-grade a video clip to 9:16 (1080x1920) in one ffmpeg pass.
     Handles both vertical and horizontal source footage.
     seek_offset: start this many seconds into the clip for variety.
     max_duration: only process this many seconds (avoids processing full-length archive clips).
     extra_vf: optional additional filter (beat FX).
+    grade_override: replaces default color grade with genre-specific theme.
     """
+    grade = grade_override or COLOR_GRADE_FILTERS
     filters = [
         f"scale=-2:{HEIGHT}",
         f"crop={WIDTH}:{HEIGHT}",
-        COLOR_GRADE_FILTERS,
+        grade,
     ]
     if extra_vf:
         filters.append(extra_vf)
@@ -98,11 +138,11 @@ def crop_to_vertical(clip_path: str, output_path: str,
 
 def cut_footage_to_beats(footage_paths: List[str],
                           beat_intervals: List[Tuple[float, float]],
-                          output_dir: str = "/tmp") -> List[str]:
+                          output_dir: str = "/tmp",
+                          genre: str = "default") -> List[str]:
     """
     For each beat interval, take the next footage clip (cycling),
-    crop/grade it, and trim to EXACT frame count (prevents beat drift).
-    Applies random seek offset into clips + occasional FX for variety.
+    crop/grade it with genre-specific theme, and trim to EXACT frame count.
     Returns list of paths to trimmed segments.
     """
     segments = []
@@ -110,6 +150,10 @@ def cut_footage_to_beats(footage_paths: List[str],
     if n_clips == 0:
         logger.error("No footage clips available")
         return []
+
+    # Pick cohesive visual theme for this video based on genre
+    theme = VISUAL_THEMES.get(genre, VISUAL_THEMES["default"])
+    logger.info(f"Visual theme: {genre}")
 
     # Pre-compute clip durations for random seek offsets
     clip_durations = {}
@@ -135,14 +179,16 @@ def cut_footage_to_beats(footage_paths: List[str],
         max_seek = max(0, src_dur - duration - 1.0)
         seek = random.uniform(0, max_seek) if max_seek > 1.0 else 0.0
 
-        # Occasional FX on some segments
-        fx = random.choice(BEAT_FX)
+        # Occasional themed accent (not random jarring FX)
+        fx = ""
+        if theme["accent"] and random.random() < theme["accent_chance"]:
+            fx = theme["accent"]
 
         try:
             # Only process enough of the source clip for this beat + small buffer
             crop_to_vertical(src_clip, graded_path,
                              seek_offset=seek, max_duration=duration + 2.0,
-                             extra_vf=fx or "")
+                             extra_vf=fx, grade_override=theme["grade"])
 
             # Trim to EXACT frame count (not float duration)
             cmd = [
@@ -264,6 +310,7 @@ def render_short(audio_segment_path: str,
                   beat_intervals: List[Tuple[float, float]],
                   track_name: str,
                   artist: str = "Unknown Artist",
+                  genre: str = "default",
                   output_dir: str = "/tmp") -> Optional[str]:
     """
     Top-level render function:
@@ -280,8 +327,9 @@ def render_short(audio_segment_path: str,
     logger.info(f"  Footage clips: {len(footage_paths)}")
     logger.info(f"  Beat intervals: {len(beat_intervals)}")
 
-    # Step 1: Cut footage to beat intervals
-    segments = cut_footage_to_beats(footage_paths, beat_intervals, output_dir)
+    # Step 1: Cut footage to beat intervals with genre-specific theme
+    segments = cut_footage_to_beats(footage_paths, beat_intervals, output_dir,
+                                     genre=genre)
     if not segments:
         logger.error("No segments rendered")
         return None

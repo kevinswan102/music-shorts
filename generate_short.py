@@ -144,14 +144,19 @@ def main():
     )
     logger.info(f"Beat intervals: {len(beat_intervals)} cuts")
 
-    # Step 5: Classify genre (with BPM context) + fetch footage
+    # Step 5: Classify genre (with audio analysis) + fetch footage
     bpm = analysis["bpm"]
+    energy = analysis.get("energy", "")
+    brightness = analysis.get("brightness", "")
+    texture = analysis.get("texture", "")
     from footage_fetcher import classify_genre_llm
-    genre = classify_genre_llm(song_title, bpm=bpm)
-    logger.info(f"Genre: {genre} (BPM: {bpm:.0f})")
+    genre = classify_genre_llm(song_title, bpm=bpm, energy=energy,
+                                brightness=brightness, texture=texture)
+    logger.info(f"Genre: {genre} (BPM: {bpm:.0f}, {energy}/{brightness}/{texture})")
 
     logger.info("Step 5: Fetching footage...")
-    footage_paths = fetch_footage(song_title, bpm=bpm)
+    footage_paths = fetch_footage(song_title, bpm=bpm, energy=energy,
+                                   brightness=brightness, texture=texture)
     if not footage_paths:
         logger.error("No footage fetched. Exiting.")
         sys.exit(1)
@@ -165,6 +170,7 @@ def main():
         beat_intervals=beat_intervals,
         track_name=song_title,
         artist=ARTIST_NAME,
+        genre=genre,
     )
     if not final_video:
         logger.error("Video rendering failed. Exiting.")
