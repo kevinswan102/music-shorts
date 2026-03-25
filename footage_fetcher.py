@@ -167,22 +167,21 @@ TARGET_CLIPS = 12
 def classify_genre(track_title: str) -> str:
     """Simple keyword-based visual mood classification from track title."""
     title_lower = track_title.lower()
+    # Order matters — more specific matches first
     hints = {
         "psychedelic": ["psychedelic", "trippy", "acid", "fractal", "kaleidoscope", "experimental", "weird"],
-        "dark": ["ghost", "dark", "death", "horror", "scream", "demon", "shadow", "nightmare", "doom", "grave", "blood", "tears"],
+        "dark": ["ghost", "nightmare", "demon", "horror", "scream", "shadow", "doom", "grave", "blood"],
         "rock": ["rock", "guitar", "punk", "grunge", "metal", "shred"],
         "phonk": ["phonk", "drift", "cowbell", "memphis"],
-        "trap": ["trap", "drill", "gang", "menace", "opp", "kill", "concealed"],
-        "hype": ["hype", "engine", "warning", "knockout", "fight", "insanity"],
-        "chill": ["chill", "relax", "calm", "peaceful", "dreamy", "soft", "breeze", "summer"],
-        "lofi": ["lofi", "lo-fi", "lo fi", "study", "cozy", "medley", "campfire"],
-        "ambient": ["ambient", "space", "ethereal", "atmospheric", "cosmic", "nebula", "tranquil", "symphony"],
-        "orchestral": ["orchestral", "epic", "cinematic", "enemy", "battle", "inbound", "war"],
-        "electronic": [
-            "electronic", "synth", "bass", "drop", "edm",
-            "techno", "house", "trance", "dubstep", "pulse",
-            "neon", "digital", "cyber", "daft", "funk",
-        ],
+        "trap": ["trap", "drill", "gang", "menace", "opp", "concealed"],
+        "hype": ["hype", "knockout", "fight", "insanity", "beast", "turbo"],
+        "chill": ["chill", "relax", "calm", "peaceful", "dreamy", "soft", "breeze",
+                  "summer", "bright", "sunny", "love", "beautiful", "gentle", "sweet"],
+        "lofi": ["lofi", "lo-fi", "lo fi", "study", "cozy", "campfire", "late night"],
+        "ambient": ["ambient", "space", "ethereal", "atmospheric", "cosmic", "nebula", "float"],
+        "orchestral": ["orchestral", "epic", "cinematic", "battle", "inbound", "war", "kingdom"],
+        "electronic": ["electronic", "synth", "edm", "techno", "house", "trance",
+                       "dubstep", "neon", "digital", "cyber"],
     }
     for genre, keywords in hints.items():
         if any(kw in title_lower for kw in keywords):
@@ -215,21 +214,25 @@ def classify_genre_llm(track_title: str, bpm: float = 0.0,
                 "role": "user",
                 "content": (
                     f"Pick the VISUAL MOOD that best matches this music track. "
-                    f"This determines what VIDEO FOOTAGE to show, not strict music genre.\n"
+                    f"This determines what VIDEO FOOTAGE to show.\n"
                     f"Options: {moods}\n"
-                    f"Track: \"{track_title}\"{audio_hint}\n\n"
+                    f"Track title: \"{track_title}\"{audio_hint}\n\n"
+                    f"IMPORTANT: The track TITLE is your strongest signal. "
+                    f"Words like Bright, Summer, Love, Chill = chill or lofi. "
+                    f"Audio features can be misleading — a layered RnB song may "
+                    f"measure as high energy even though it feels light.\n\n"
                     f"Guide:\n"
-                    f"- psychedelic: trippy, experimental, weird, acid, colorful chaos\n"
-                    f"- dark: heavy metal, screamo, horror, intense, ghostly, eerie\n"
+                    f"- chill: bright, summer, love, day, sun, breeze, relax, soft, peaceful\n"
+                    f"- lofi: cozy, study, warm, nostalgic, rainy, coffee, late night\n"
+                    f"- psychedelic: trippy, experimental, weird, acid, colorful, dream\n"
+                    f"- dark: ghost, shadow, demon, death, horror, eerie, nightmare, tears\n"
                     f"- rock: guitars, punk, grunge, alt rock, concert energy\n"
-                    f"- phonk: memphis, drift, cowbell, dark bass\n"
-                    f"- hype: high energy, fight, sports, adrenaline\n"
-                    f"- trap: hip-hop, drill, street, luxury\n"
-                    f"- electronic: EDM, synth, techno, futuristic\n"
-                    f"- chill: relaxed, peaceful, soft, mellow\n"
-                    f"- lofi: cozy, study, warm, nostalgic\n"
-                    f"- ambient: space, ethereal, atmospheric, minimal\n"
-                    f"- orchestral: epic, cinematic, dramatic, classical\n"
+                    f"- phonk: memphis, drift, cowbell, dark bass, skrt\n"
+                    f"- hype: fight, knockout, fire, insane, turbo, beast\n"
+                    f"- trap: hip-hop, drill, street, flex, luxury, gang\n"
+                    f"- electronic: EDM, synth, techno, futuristic, cyber, neon\n"
+                    f"- ambient: space, cosmos, ethereal, atmospheric, void, float\n"
+                    f"- orchestral: epic, cinematic, battle, war, rise, kingdom\n"
                     f"- default: if nothing fits well\n\n"
                     f"Reply with ONLY one word from the list."
                 ),
