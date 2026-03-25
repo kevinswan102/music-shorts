@@ -165,8 +165,8 @@ def classify_genre(track_title: str) -> str:
     return "default"
 
 
-def classify_genre_llm(track_title: str) -> str:
-    """Use LLM to classify genre. Falls back to keyword-based."""
+def classify_genre_llm(track_title: str, bpm: float = 0.0) -> str:
+    """Use LLM to classify genre with BPM context. Falls back to keyword-based."""
     try:
         from llm_client import get_llm_client, llm_available
         if not llm_available():
@@ -174,14 +174,26 @@ def classify_genre_llm(track_title: str) -> str:
 
         client, model = get_llm_client()
         genres = list(PEXELS_KEYWORDS.keys())
+
+        bpm_hint = ""
+        if bpm > 0:
+            bpm_hint = (
+                f" The track's BPM is {bpm:.0f}. "
+                f"Use this to help classify: "
+                f"<100 BPM = chill/lofi/ambient, "
+                f"100-130 = electronic/trap, "
+                f"130-160 = phonk/hype/orchestral, "
+                f"160+ = hype/phonk."
+            )
+
         resp = client.chat.completions.create(
             model=model,
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Classify this music track title into exactly one genre "
+                    f"Classify this music track into exactly one genre "
                     f"from this list: {genres}. "
-                    f"Track title: \"{track_title}\"\n"
+                    f"Track title: \"{track_title}\".{bpm_hint}\n"
                     f"Reply with ONLY the genre name, nothing else."
                 ),
             }],
@@ -413,12 +425,12 @@ def _fetch_archive(genre: str, num_clips: int, output_dir: str) -> List[str]:
 # ─── Main Orchestrator ───────────────────────────────────────
 
 def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
-                   output_dir: str = "/tmp") -> List[str]:
+                   output_dir: str = "/tmp", bpm: float = 0.0) -> List[str]:
     """
     High-level: classify genre, fetch from both Pexels + Archive.org,
     shuffle together for variety.
     """
-    genre = classify_genre_llm(track_title)
+    genre = classify_genre_llm(track_title, bpm=bpm)
     archive_target, pexels_target = SOURCE_MIX.get(genre, (3, 9))
     logger.info(f"Genre: {genre} | Targets: {archive_target} archive + {pexels_target} pexels")
 

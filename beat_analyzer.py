@@ -116,20 +116,34 @@ def _snap_to_frame(t: float, fps: int = 30) -> float:
 def get_beat_intervals(beat_times: List[float], start_offset: float = 0.0,
                         min_interval: float = 0.3,
                         max_interval: float = 4.0,
-                        fps: int = 30) -> List[Tuple[float, float]]:
+                        fps: int = 30,
+                        skip_ratio: float = 0.35) -> List[Tuple[float, float]]:
     """
     Convert beat timestamps into (start, end) intervals for video cuts.
     Merges beats that are too close (< min_interval).
     Splits intervals that are too long (> max_interval).
+    Randomly skips ~skip_ratio of beats so some clips hold longer (visual variety).
     All times are relative to the clip (offset by start_offset).
     Times are snapped to frame boundaries (1/fps) to prevent cumulative drift.
     """
+    import random
+
     if not beat_times:
         return [(0.0, TARGET_DURATION)]
 
     relative = [b - start_offset for b in beat_times if b >= start_offset]
     if not relative:
         return [(0.0, TARGET_DURATION)]
+
+    # Randomly skip some beats so not every beat is a cut.
+    # Keep first and last few beats, skip randomly in between.
+    if len(relative) > 6 and skip_ratio > 0:
+        keep = [relative[0]]  # always cut on first beat
+        for beat in relative[1:-1]:
+            if random.random() > skip_ratio:
+                keep.append(beat)
+        keep.append(relative[-1])  # always cut near end
+        relative = keep
 
     intervals = []
     current_start = 0.0

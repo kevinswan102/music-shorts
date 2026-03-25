@@ -144,9 +144,14 @@ def main():
     )
     logger.info(f"Beat intervals: {len(beat_intervals)} cuts")
 
-    # Step 5: Fetch footage
-    logger.info("Step 5: Fetching Pexels stock footage...")
-    footage_paths = fetch_footage(song_title)
+    # Step 5: Classify genre (with BPM context) + fetch footage
+    bpm = analysis["bpm"]
+    from footage_fetcher import classify_genre_llm
+    genre = classify_genre_llm(song_title, bpm=bpm)
+    logger.info(f"Genre: {genre} (BPM: {bpm:.0f})")
+
+    logger.info("Step 5: Fetching footage...")
+    footage_paths = fetch_footage(song_title, bpm=bpm)
     if not footage_paths:
         logger.error("No footage fetched. Exiting.")
         sys.exit(1)
@@ -168,8 +173,6 @@ def main():
 
     # Step 7: Generate description + upload
     logger.info("Step 7: Generating description and uploading...")
-    from footage_fetcher import classify_genre_llm
-    genre = classify_genre_llm(song_title)
     description_text = generate_description(song_title, genre)
 
     from youtube_uploader import YouTubeUploader
