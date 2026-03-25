@@ -1,0 +1,15 @@
+.env
+*.mp4
+*.mp3
+*.wav
+*.webm
+/tmp/
+__pycache__/
+*.pyc
+token.json
+youtube_credentials.json
+youtube_token.pickle
+.DS_Store
+.claude/
+CLAUDE.md
+cookies.txt
