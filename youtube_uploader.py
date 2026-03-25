@@ -252,20 +252,17 @@ class YouTubeUploader:
         apple_music = os.getenv('APPLE_MUSIC_URL', '')
         freecash = os.getenv('FREECASH_URL', '')
 
-        lines = [f"Stream {artist} everywhere:"]
-        if beatstars:
-            lines.append(f"Buy beats & services: {beatstars}")
-        if spotify:
-            lines.append(f"Spotify: {spotify}")
-        if apple_music:
-            lines.append(f"Apple Music: {apple_music}")
+        lines = []
         if hyperfollow:
-            lines.append(f"All platforms: {hyperfollow}")
+            lines.append(f"stream the full track: {hyperfollow}")
+        elif spotify:
+            lines.append(f"stream the full track: {spotify}")
+        if beatstars:
+            lines.append(f"want this beat? {beatstars}")
         if instagram:
-            lines.append(f"IG: {instagram}")
+            lines.append(f"ig: {instagram}")
         if freecash:
-            lines.append(f"\nEarn free cash: {freecash}")
-        lines.append("\nLike if you vibed with this one!")
+            lines.append(f"earn free cash: {freecash}")
 
         text = "\n".join(lines)
         try:
@@ -297,39 +294,43 @@ class YouTubeUploader:
         apple_music = os.getenv('APPLE_MUSIC_URL', '')
         freecash = os.getenv('FREECASH_URL', '')
 
-        title = f"{track_name} | {artist} #shorts #music #{genre.lower().replace(' ', '')}"
+        title = f"{track_name} | {artist} #shorts #music"
         title = title[:100]
 
-        # Build description
-        desc_parts = [f"{track_name} by {artist}"]
+        # Build description — personal tone, push streaming + beats
+        desc_parts = []
         if llm_description:
             desc_parts.append(llm_description)
 
-        # Artist links section
-        link_lines = []
-        if beatstars:
-            link_lines.append(f"Buy beats & services: {beatstars}")
+        # Stream CTA
+        desc_parts.append(f"Stream \"{track_name}\" now:")
+        stream_lines = []
         if spotify:
-            link_lines.append(f"Spotify: {spotify}")
+            stream_lines.append(f"Spotify: {spotify}")
         if apple_music:
-            link_lines.append(f"Apple Music: {apple_music}")
+            stream_lines.append(f"Apple Music: {apple_music}")
         if hyperfollow:
-            link_lines.append(f"All platforms: {hyperfollow}")
+            stream_lines.append(f"All platforms: {hyperfollow}")
+        if stream_lines:
+            desc_parts.append("\n".join(stream_lines))
+
+        # Beat store CTA
+        if beatstars:
+            desc_parts.append(f"Want this beat? Browse & buy beats: {beatstars}")
+
         if instagram:
-            link_lines.append(f"IG: {instagram}")
-        if link_lines:
-            desc_parts.append("\n".join(link_lines))
+            desc_parts.append(f"IG: {instagram}")
 
         if freecash:
             desc_parts.append(f"Earn free cash: {freecash}")
 
-        desc_parts.append(f"#music #{genre.lower()} #shorts #musicvideo #visualizer")
+        desc_parts.append("#music #shorts #beats")
 
         description = "\n\n".join(desc_parts)
 
         tags = [
-            track_name, artist, genre.lower(), 'music', 'shorts',
-            'music video', 'visualizer', 'beats',
+            track_name, artist, 'music', 'shorts',
+            'beats', 'producer', 'visualizer',
         ]
 
         return {

@@ -67,11 +67,11 @@ def clean_song_title(raw_title: str) -> str:
 
 
 def generate_description(track_name: str, genre: str) -> str:
-    """Use Groq LLM to generate a 2-3 sentence description of the track vibe."""
+    """Generate a short personal-sounding blurb about the track."""
     try:
         from llm_client import get_llm_client, llm_available
         if not llm_available():
-            return f'"{track_name}" by {ARTIST_NAME}.'
+            return ""
 
         client, model = get_llm_client()
         resp = client.chat.completions.create(
@@ -79,19 +79,24 @@ def generate_description(track_name: str, genre: str) -> str:
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Write a 2-3 sentence YouTube Shorts description for a music "
-                    f"visualizer video. Track: \"{track_name}\", Genre: {genre}, "
-                    f"Artist: {ARTIST_NAME}. Keep it hype and engaging. "
-                    f"Do NOT include hashtags. Do NOT say 'subscribe'."
+                    f"Write 1-2 SHORT sentences as if you're the artist casually telling "
+                    f"people about your track \"{track_name}\". Sound natural and human, "
+                    f"like a real person typing a quick note — NOT like AI or marketing copy. "
+                    f"No hashtags, no emojis, no \"subscribe\", no exclamation marks. "
+                    f"Keep it chill and genuine. Examples of the tone:\n"
+                    f"- \"made this one late at night, just vibes\"\n"
+                    f"- \"been sitting on this beat for a minute, felt right to drop it\"\n"
+                    f"- \"this one hits different with headphones on\"\n"
+                    f"Reply with ONLY the 1-2 sentences, nothing else."
                 ),
             }],
-            max_tokens=150,
-            temperature=0.7,
+            max_tokens=80,
+            temperature=0.9,
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
         logger.warning(f"LLM description generation failed: {e}")
-        return f'"{track_name}" by {ARTIST_NAME}.'
+        return ""
 
 
 def main():
