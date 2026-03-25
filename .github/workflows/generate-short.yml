@@ -1,0 +1,60 @@
+name: Generate Music Short
+
+on:
+  schedule:
+    # Daily at midnight UTC (6pm EST)
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # Manual trigger for testing
+
+permissions:
+  contents: write  # Needed to push archive.txt updates
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg libsndfile1
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -U yt-dlp
+
+      - name: Run generator
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_ENABLED: 'true'
+          SKIP_YOUTUBE_UPLOAD: 'false'
+          YOUTUBE_PRIVACY: 'public'
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          LLM_PROVIDER: 'groq'
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          STARDRIFT_CHANNEL_URL: 'https://www.youtube.com/@official_stardrift'
+        run: python generate_short.py
+
+      - name: Commit archive.txt
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add archive.txt
+          git diff --cached --quiet || git commit -m "chore: update archive.txt with processed track"
+          git push

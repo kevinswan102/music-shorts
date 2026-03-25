@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""
+generate_short.py — Main entry point for music-shorts pipeline.
+
+1. Scan @official_stardrift channel for tracks
+2. Pick next unprocessed track
+3. Download audio, analyze beats, find best 30s section
+4. Fetch Pexels stock footage matching the track vibe
+5. Render beat-synced video with color grading + text overlay
+6. Generate LLM description + tags
+7. Upload to YouTube
+8. Update archive.txt
+"""
+
+import os
+import sys
+import logging
+import gc
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("generate_short")
+
+from music_source import list_channel_videos, pick_next_track, download_audio, save_to_archive
+from beat_analyzer import analyze_track, extract_audio_segment, get_beat_intervals
+from footage_fetcher import fetch_footage
+from video_renderer import render_short
+
+
+def generate_description(track_name: str, genre: str) -> str:
+    """Use Groq LLM to generate a 2-3 sentence description of the track vibe."""
+    try:
+        from llm_client import get_llm_client, llm_available
+        if not llm_available():
+            return f'"{track_name}" by Star Drift.'
+
+        client, model = get_llm_client()
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Write a 2-3 sentence YouTube Shorts description for a music "
+                    f"visualizer video. Track: \"{track_name}\", Genre: {genre}, "
+                    f"Artist: Star Drift. Keep it hype and engaging. "
+                    f"Do NOT include hashtags. Do NOT say 'subscribe'."
+                ),
+            }],
+            max_tokens=150,
+            temperature=0.7,
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        logger.warning(f"LLM description generation failed: {e}")
+        return f'"{track_name}" by Star Drift.'
+
+
+def main():
+    logger.info("=" * 60)
+    logger.info("MUSIC SHORTS GENERATOR — @StarDriftMusic")
+    logger.info("=" * 60)
+
+    # Step 1: Scan channel
+    logger.info("Step 1: Scanning @official_stardrift channel...")
+    videos = list_channel_videos()
+    if not videos:
+        logger.error("No videos found on channel. Exiting.")
+        sys.exit(0)
+    logger.info(f"Found {len(videos)} videos on channel")
+
+    # Step 2: Pick next track
+    logger.info("Step 2: Picking next unprocessed track...")
+    track = pick_next_track(videos)
+    if not track:
+        logger.info("All tracks have been processed. Nothing to do.")
+        sys.exit(0)
+    logger.info(f"Selected: {track['title']} (ID: {track['id']})")
+
+    # Step 3: Download audio
+    logger.info("Step 3: Downloading audio...")
+    audio_path = download_audio(track["url"])
+    if not audio_path:
+        logger.error("Failed to download audio. Exiting.")
+        sys.exit(1)
+    logger.info(f"Audio downloaded: {audio_path}")
+
+    # Step 4: Analyze beats
+    logger.info("Step 4: Analyzing beats and finding best section...")
+    analysis = analyze_track(audio_path)
+    logger.info(
+        f"BPM: {analysis['bpm']:.1f}, "
+        f"Best window: {analysis['best_start']:.1f}s - {analysis['best_end']:.1f}s"
+    )
+
+    segment_path = "/tmp/audio_segment.wav"
+    extract_audio_segment(
+        audio_path, analysis["best_start"], analysis["best_end"], segment_path
+    )
+
+    beat_intervals = get_beat_intervals(
+        analysis["beat_times"],
+        start_offset=analysis["best_start"],
+    )
+    logger.info(f"Beat intervals: {len(beat_intervals)} cuts")
+
+    # Step 5: Fetch footage
+    logger.info("Step 5: Fetching Pexels stock footage...")
+    footage_paths = fetch_footage(track["title"])
+    if not footage_paths:
+        logger.error("No footage fetched. Exiting.")
+        sys.exit(1)
+    logger.info(f"Fetched {len(footage_paths)} footage clips")
+
+    # Step 6: Render video
+    logger.info("Step 6: Rendering beat-synced video...")
+    final_video = render_short(
+        audio_segment_path=segment_path,
+        footage_paths=footage_paths,
+        beat_intervals=beat_intervals,
+        track_name=track["title"],
+        artist="Star Drift",
+    )
+    if not final_video:
+        logger.error("Video rendering failed. Exiting.")
+        sys.exit(1)
+    logger.info(f"Video rendered: {final_video}")
+
+    # Step 7: Generate description + upload
+    logger.info("Step 7: Generating description and uploading...")
+    from footage_fetcher import classify_genre_llm
+    genre = classify_genre_llm(track["title"])
+    description_text = generate_description(track["title"], genre)
+
+    from youtube_uploader import YouTubeUploader
+    uploader = YouTubeUploader()
+    result = uploader.upload_video({
+        "video_path": final_video,
+        "track_name": track["title"],
+        "artist": "Star Drift",
+        "genre": genre,
+        "description_text": description_text,
+    })
+
+    if result.get("success"):
+        logger.info(f"Upload successful: {result.get('video_url')}")
+    elif result.get("mock_upload"):
+        logger.info(f"Mock upload (dev mode): {result.get('would_upload', {}).get('title', '')}")
+    else:
+        logger.error(f"Upload failed: {result.get('error')}")
+        sys.exit(1)
+
+    # Step 8: Update archive
+    logger.info("Step 8: Updating archive...")
+    save_to_archive(track["id"])
+    logger.info(f"Archived: {track['id']}")
+
+    # Cleanup temp files
+    for path in [audio_path, segment_path, final_video] + footage_paths:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    gc.collect()
+    logger.info("DONE. Short generated and uploaded successfully.")
+
+
+if __name__ == "__main__":
+    main()
