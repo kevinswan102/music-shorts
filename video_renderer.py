@@ -311,7 +311,7 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
         # Start poem at bar 2 (skip first bar to let viewer settle in)
         # Each subsequent line appears at the next bar boundary
         # All lines stay visible once they appear (no disappear)
-        poem_y_start = 350  # upper area, below safe zone
+        poem_y_start = 600  # centered area, easy to read on 1920px tall screen
         line_spacing = 55
 
         for i, line in enumerate(poem_lines):

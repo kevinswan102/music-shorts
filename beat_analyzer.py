@@ -46,14 +46,15 @@ def analyze_track(audio_path: str) -> dict:
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
 
     # Choose Short duration based on BPM — faster tracks get shorter Shorts
+    # Minimum 25s to give text overlay enough screen time
     if bpm >= 160:
-        target_dur = 18.0
-    elif bpm >= 140:
-        target_dur = 22.0
-    elif bpm >= 120:
         target_dur = 25.0
-    else:
+    elif bpm >= 140:
+        target_dur = 28.0
+    elif bpm >= 120:
         target_dur = 30.0
+    else:
+        target_dur = 35.0
     target_dur = min(target_dur, duration)  # can't exceed track length
     logger.info(f"Target Short duration: {target_dur:.0f}s (BPM: {bpm:.0f})")
 
@@ -187,6 +188,23 @@ def _find_top_windows(onset_env: np.ndarray, sr: int,
             results.append((start_time, end_time))
             if len(results) >= n:
                 break
+
+    # Fallback: if not enough windows found, divide track into n equal zones
+    # and pick the best window from each zone (guarantees distinct segments)
+    if len(results) < n and track_duration >= target_duration * 1.5:
+        results = []
+        zone_len = track_duration / n
+        for z in range(n):
+            zone_start = z * zone_len
+            zone_end = min((z + 1) * zone_len, track_duration)
+            best_score = -1
+            best_time = zone_start
+            for sc, st in scored:
+                if zone_start <= st < zone_end and st + target_duration <= track_duration:
+                    if sc > best_score:
+                        best_score = sc
+                        best_time = st
+            results.append((best_time, min(best_time + target_duration, track_duration)))
 
     return results
 

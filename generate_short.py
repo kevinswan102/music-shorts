@@ -97,12 +97,69 @@ def generate_description(track_name: str, genre: str) -> str:
         return ""
 
 
-def generate_poem(track_name: str, genre: str) -> list:
-    """Generate a 4-line poem/quote for engagement overlay. Returns list of lines."""
+def generate_overlay_text() -> list:
+    """Generate 2-3 line overlay text: either a Reddit shower thought or a motivational plot twist.
+    Returns list of short lines for the text overlay."""
+    import random
+
+    # 50/50 chance: shower thought vs motivational plot twist
+    use_shower_thought = random.random() < 0.5
+
+    if use_shower_thought:
+        lines = _fetch_shower_thought()
+        if lines:
+            return lines
+
+    # Motivational plot twist (or fallback if shower thought failed)
+    return _generate_motivational_twist()
+
+
+def _fetch_shower_thought() -> list:
+    """Fetch a trending shower thought from Reddit. Returns split lines or empty list."""
+    import requests
+    try:
+        resp = requests.get(
+            "https://www.reddit.com/r/Showerthoughts/hot.json?limit=25",
+            headers={"User-Agent": "music-shorts-bot/1.0"},
+            timeout=8,
+        )
+        if resp.status_code != 200:
+            return []
+
+        posts = resp.json().get("data", {}).get("children", [])
+        import random
+        # Filter: no profanity, not too long, not too short
+        BLOCKED = {"fuck", "shit", "ass", "damn", "hell", "dick", "bitch", "sex", "porn", "kill", "die", "dead", "nsfw"}
+        candidates = []
+        for post in posts:
+            title = post.get("data", {}).get("title", "")
+            if not title or len(title) < 15 or len(title) > 120:
+                continue
+            if post.get("data", {}).get("over_18"):
+                continue
+            words = set(title.lower().split())
+            if words & BLOCKED:
+                continue
+            candidates.append(title)
+
+        if not candidates:
+            return []
+
+        thought = random.choice(candidates[:10])
+        # Split into 2-3 lines (~35 chars each)
+        return _split_text(thought, max_chars=35)
+
+    except Exception as e:
+        logger.warning(f"Reddit shower thought fetch failed: {e}")
+        return []
+
+
+def _generate_motivational_twist() -> list:
+    """Generate a motivational quote with a funny unexpected twist via LLM."""
     try:
         from llm_client import get_llm_client, llm_available
         if not llm_available():
-            return []
+            return _fallback_overlay_lines()
 
         client, model = get_llm_client()
         resp = client.chat.completions.create(
@@ -110,36 +167,79 @@ def generate_poem(track_name: str, genre: str) -> list:
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Write a 4-line poem or philosophical quote inspired by the feeling "
-                    f"of a song called \"{track_name}\" (mood: {genre}). "
-                    f"Rules:\n"
-                    f"- Exactly 4 lines, each under 35 characters\n"
-                    f"- Deep, poetic, emotional — the kind of text people screenshot\n"
-                    f"- No hashtags, no emojis, no rhyming required\n"
-                    f"- Lowercase only\n"
-                    f"- Think: Rupi Kaur, Atticus, or late-night thoughts\n"
-                    f"- Do NOT mention the song title\n"
-                    f"Examples:\n"
-                    f"  some fires burn\n"
-                    f"  without smoke\n"
-                    f"  you only feel the heat\n"
-                    f"  when it's too late\n"
-                    f"\n"
-                    f"  the moon knows\n"
-                    f"  what the sun will never see\n"
-                    f"  the version of you\n"
-                    f"  that comes alive at night\n"
-                    f"\nReply with ONLY the 4 lines, nothing else."
+                    "Write a motivational quote in exactly 3 short lines.\n"
+                    "Line 1: Inspirational setup (under 30 chars)\n"
+                    "Line 2: Continuation that sounds motivational (under 35 chars)\n"
+                    "Line 3: Funny unexpected twist that subverts it (under 35 chars)\n\n"
+                    "Examples:\n"
+                    "  Never give up\n"
+                    "  on finishing what you started\n"
+                    "  Finish that Big Mac.\n"
+                    "\n"
+                    "  Believe in yourself\n"
+                    "  because no one else will\n"
+                    "  They saw your browser history.\n"
+                    "\n"
+                    "  The early bird\n"
+                    "  gets the worm\n"
+                    "  The late bird gets Uber Eats.\n"
+                    "\n"
+                    "  Dream big\n"
+                    "  work hard\n"
+                    "  Nap harder.\n"
+                    "\n"
+                    "Rules:\n"
+                    "- No profanity, keep it YouTube-safe\n"
+                    "- The twist should make people laugh or smirk\n"
+                    "- Lowercase for lines 1-2, capitalize the twist (line 3) for emphasis\n"
+                    "- Reply with ONLY the 3 lines, nothing else"
                 ),
             }],
-            max_tokens=100,
+            max_tokens=80,
             temperature=1.0,
         )
         lines = [l.strip() for l in resp.choices[0].message.content.strip().split('\n') if l.strip()]
-        return lines[:4]
+        return lines[:3] if lines else _fallback_overlay_lines()
     except Exception as e:
-        logger.warning(f"LLM poem generation failed: {e}")
-        return []
+        logger.warning(f"LLM motivational twist generation failed: {e}")
+        return _fallback_overlay_lines()
+
+
+def _fallback_overlay_lines() -> list:
+    """Hardcoded fallback overlay texts when both Reddit and LLM fail."""
+    import random
+    options = [
+        ["Never give up", "on finishing what you started", "Finish that Big Mac."],
+        ["Dream big", "work hard", "Nap harder."],
+        ["Believe in yourself", "because at this point", "Who else is going to?"],
+        ["Stay humble", "stay hungry", "Order the large fries."],
+        ["Good things come", "to those who wait", "Great things come to those who don't."],
+    ]
+    return random.choice(options)
+
+
+def _split_text(text: str, max_chars: int = 35) -> list:
+    """Split text into lines of max_chars, breaking at word boundaries."""
+    words = text.split()
+    lines = []
+    current = ""
+    for word in words:
+        test = f"{current} {word}".strip()
+        if len(test) <= max_chars:
+            current = test
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines[:3]  # max 3 lines
+
+
+# -- Original poem generator (disabled — kept for reference) --
+# def generate_poem(track_name: str, genre: str) -> list:
+#     """Generate a 4-line poem/quote for engagement overlay."""
+#     ... (see git history for full implementation)
 
 
 def render_and_upload_short(audio_path: str, analysis: dict,
@@ -170,10 +270,10 @@ def render_and_upload_short(audio_path: str, analysis: dict,
         logger.error(f"No footage for short {short_num}. Skipping.")
         return False
 
-    # Generate unique poem for each short
-    poem_lines = generate_poem(song_title, genre)
+    # Generate unique overlay text for each short (shower thought or motivational twist)
+    poem_lines = generate_overlay_text()
     if poem_lines:
-        logger.info(f"Poem {short_num}: {poem_lines}")
+        logger.info(f"Overlay text {short_num}: {poem_lines}")
 
     # Render
     final_video = render_short(

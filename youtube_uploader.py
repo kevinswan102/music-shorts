@@ -319,7 +319,7 @@ class YouTubeUploader:
             desc_parts.append(f"Want this beat? Browse & buy beats: {beatstars}")
 
         if instagram:
-            desc_parts.append(f"IG: {instagram}")
+            desc_parts.append(f"ig / tiktok: {instagram}")
 
         if freecash:
             desc_parts.append(f"Earn free cash: {freecash}")
