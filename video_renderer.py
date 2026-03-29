@@ -171,12 +171,8 @@ def cut_footage_to_beats(footage_paths: List[str],
     theme = VISUAL_THEMES.get(genre, VISUAL_THEMES["default"])
     logger.info(f"Visual theme: {genre}")
 
-    # Cap intervals to available clips — no clip reuse
-    if len(beat_intervals) > n_clips:
-        logger.info(f"Capping {len(beat_intervals)} intervals to {n_clips} unique clips")
-        beat_intervals = beat_intervals[:n_clips]
-
     # Shuffle clip assignment so it's not always the same order
+    # Clips cycle via i % n_clips — all beat intervals are kept, clips repeat as needed
     clip_order = list(range(n_clips))
     random.shuffle(clip_order)
 

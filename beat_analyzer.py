@@ -278,10 +278,10 @@ def _snap_to_frame(t: float, fps: int = 30) -> float:
 
 def get_beat_intervals(beat_times: List[float], start_offset: float = 0.0,
                         segment_duration: float = 30.0,
-                        min_interval: float = 0.3,
+                        min_interval: float = 1.5,
                         max_interval: float = 4.0,
                         fps: int = 30,
-                        skip_ratio: float = 0.35) -> List[Tuple[float, float]]:
+                        skip_ratio: float = 0.6) -> List[Tuple[float, float]]:
     """
     Convert beat timestamps into (start, end) intervals for video cuts.
     Merges beats that are too close (< min_interval).

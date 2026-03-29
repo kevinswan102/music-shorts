@@ -97,125 +97,162 @@ def generate_description(track_name: str, genre: str) -> str:
         return ""
 
 
+_BLOCKED = {
+    "fuck", "shit", "ass", "damn", "hell", "dick", "bitch",
+    "sex", "porn", "kill", "die", "dead", "nsfw", "rape", "suicide",
+}
+
+
 def generate_overlay_text() -> list:
-    """Generate 2-3 line overlay text: either a Reddit shower thought or a motivational plot twist.
-    Returns list of short lines for the text overlay."""
+    """
+    Fetch an interesting fun fact for the video overlay.
+    Tries multiple sources in order, falls back to hardcoded facts.
+    Goal: make viewer pause and read → stays on video longer → hears more of the song.
+    """
+    sources = [
+        _til_reddit,          # r/todayilearned top week — proven viral facts
+        _mildly_interesting,  # r/mildlyinteresting top week — curious observations
+        _useless_fact_api,    # uselessfacts.jsph.pl — free, no key
+        _numbers_fact_api,    # numbersapi.com — free, no key, trivia
+        _showerthoughts,      # r/Showerthoughts top week — backup
+    ]
     import random
+    random.shuffle(sources[:2])  # randomize TIL vs mildlyinteresting for variety
 
-    # 50/50 chance: shower thought vs motivational plot twist
-    use_shower_thought = random.random() < 0.5
+    for source in sources:
+        try:
+            lines = source()
+            if lines:
+                return lines
+        except Exception as e:
+            logger.warning(f"Overlay source {source.__name__} failed: {e}")
 
-    if use_shower_thought:
-        lines = _fetch_shower_thought()
-        if lines:
-            return lines
-
-    # Motivational plot twist (or fallback if shower thought failed)
-    return _generate_motivational_twist()
+    return _fallback_facts()
 
 
-def _fetch_shower_thought() -> list:
-    """Fetch a trending shower thought from Reddit. Returns split lines or empty list."""
-    import requests
-    try:
-        resp = requests.get(
-            "https://www.reddit.com/r/Showerthoughts/hot.json?limit=25",
-            headers={"User-Agent": "music-shorts-bot/1.0"},
-            timeout=8,
-        )
-        if resp.status_code != 200:
-            return []
-
-        posts = resp.json().get("data", {}).get("children", [])
-        import random
-        # Filter: no profanity, not too long, not too short
-        BLOCKED = {"fuck", "shit", "ass", "damn", "hell", "dick", "bitch", "sex", "porn", "kill", "die", "dead", "nsfw"}
-        candidates = []
-        for post in posts:
-            title = post.get("data", {}).get("title", "")
-            if not title or len(title) < 15 or len(title) > 120:
-                continue
-            if post.get("data", {}).get("over_18"):
-                continue
-            words = set(title.lower().split())
-            if words & BLOCKED:
-                continue
-            candidates.append(title)
-
-        if not candidates:
-            return []
-
-        thought = random.choice(candidates[:10])
-        # Split into 2-3 lines (~35 chars each)
-        return _split_text(thought, max_chars=35)
-
-    except Exception as e:
-        logger.warning(f"Reddit shower thought fetch failed: {e}")
+def _reddit_top_facts(subreddit: str, strip_prefix: str = "") -> list:
+    """
+    Shared helper: fetch top posts from a subreddit, return one as split lines.
+    strip_prefix: e.g. "TIL " to remove from the start of post titles.
+    """
+    import requests, random
+    resp = requests.get(
+        f"https://www.reddit.com/r/{subreddit}/top.json?t=week&limit=50",
+        headers={"User-Agent": "music-shorts-bot/1.0"},
+        timeout=8,
+    )
+    if resp.status_code != 200:
         return []
 
+    posts = resp.json().get("data", {}).get("children", [])
+    candidates = []
+    for post in posts:
+        d = post.get("data", {})
+        title = d.get("title", "")
+        if d.get("over_18"):
+            continue
+        # Strip common prefixes
+        for pfx in ["TIL that ", "TIL ", strip_prefix]:
+            if title.lower().startswith(pfx.lower()):
+                title = title[len(pfx):]
+                break
+        # Clean up — take first sentence only (facts can be very long)
+        for sep in [". ", "! ", "? "]:
+            if sep in title:
+                title = title.split(sep)[0] + sep.strip()
+                break
+        title = title.strip()
+        if len(title) < 20 or len(title) > 130:
+            continue
+        words = set(title.lower().split())
+        if words & _BLOCKED:
+            continue
+        candidates.append(title)
 
-def _generate_motivational_twist() -> list:
-    """Generate a motivational quote with a funny unexpected twist via LLM."""
-    try:
-        from llm_client import get_llm_client, llm_available
-        if not llm_available():
-            return _fallback_overlay_lines()
+    if not candidates:
+        return []
 
-        client, model = get_llm_client()
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{
-                "role": "user",
-                "content": (
-                    "Write a motivational quote in exactly 3 short lines.\n"
-                    "Line 1: Inspirational setup (under 30 chars)\n"
-                    "Line 2: Continuation that sounds motivational (under 35 chars)\n"
-                    "Line 3: Funny unexpected twist that subverts it (under 35 chars)\n\n"
-                    "Examples:\n"
-                    "  Never give up\n"
-                    "  on finishing what you started\n"
-                    "  Finish that Big Mac.\n"
-                    "\n"
-                    "  Believe in yourself\n"
-                    "  because no one else will\n"
-                    "  They saw your browser history.\n"
-                    "\n"
-                    "  The early bird\n"
-                    "  gets the worm\n"
-                    "  The late bird gets Uber Eats.\n"
-                    "\n"
-                    "  Dream big\n"
-                    "  work hard\n"
-                    "  Nap harder.\n"
-                    "\n"
-                    "Rules:\n"
-                    "- No profanity, keep it YouTube-safe\n"
-                    "- The twist should make people laugh or smirk\n"
-                    "- Lowercase for lines 1-2, capitalize the twist (line 3) for emphasis\n"
-                    "- Reply with ONLY the 3 lines, nothing else"
-                ),
-            }],
-            max_tokens=80,
-            temperature=1.0,
-        )
-        lines = [l.strip() for l in resp.choices[0].message.content.strip().split('\n') if l.strip()]
-        return lines[:3] if lines else _fallback_overlay_lines()
-    except Exception as e:
-        logger.warning(f"LLM motivational twist generation failed: {e}")
-        return _fallback_overlay_lines()
+    fact = random.choice(candidates[:15])
+    return _split_text(fact, max_chars=38)
 
 
-def _fallback_overlay_lines() -> list:
-    """Hardcoded fallback overlay texts when both Reddit and LLM fail."""
+def _til_reddit() -> list:
+    """r/todayilearned top of week — proven interesting facts."""
+    return _reddit_top_facts("todayilearned")
+
+
+def _mildly_interesting() -> list:
+    """r/mildlyinteresting top of week — curious observations."""
+    return _reddit_top_facts("mildlyinteresting")
+
+
+def _showerthoughts() -> list:
+    """r/Showerthoughts top of week — thought-provoking one-liners."""
+    return _reddit_top_facts("Showerthoughts")
+
+
+def _useless_fact_api() -> list:
+    """uselessfacts.jsph.pl — free fun facts API, no key needed."""
+    import requests
+    resp = requests.get(
+        "https://uselessfacts.jsph.pl/api/v2/facts/random",
+        params={"language": "en"},
+        timeout=8,
+    )
+    resp.raise_for_status()
+    text = resp.json().get("text", "").strip()
+    if not text or len(text) < 20:
+        return []
+    words = set(text.lower().split())
+    if words & _BLOCKED:
+        return []
+    # Trim to first sentence if long
+    for sep in [". ", "! ", "? "]:
+        if sep in text[20:]:
+            text = text.split(sep)[0] + sep.strip()
+            break
+    return _split_text(text[:130], max_chars=38)
+
+
+def _numbers_fact_api() -> list:
+    """numbersapi.com — free trivia facts about random numbers, no key needed."""
+    import requests
+    resp = requests.get(
+        "http://numbersapi.com/random/trivia",
+        params={"json": True},
+        timeout=8,
+    )
+    resp.raise_for_status()
+    text = resp.json().get("text", "").strip()
+    if not text or len(text) < 20:
+        return []
+    words = set(text.lower().split())
+    if words & _BLOCKED:
+        return []
+    return _split_text(text[:130], max_chars=38)
+
+
+def _fallback_facts() -> list:
+    """Hardcoded fun facts — last resort when all APIs are down."""
     import random
-    options = [
-        ["Never give up", "on finishing what you started", "Finish that Big Mac."],
-        ["Dream big", "work hard", "Nap harder."],
-        ["Believe in yourself", "because at this point", "Who else is going to?"],
-        ["Stay humble", "stay hungry", "Order the large fries."],
-        ["Good things come", "to those who wait", "Great things come to those who don't."],
+    facts = [
+        "Honey never expires. 3000-year-old honey found in Egyptian tombs was still edible.",
+        "Cleopatra lived closer in time to the Moon landing than to the pyramids being built.",
+        "A day on Venus is longer than a year on Venus.",
+        "Sharks are older than trees. They've existed for over 400 million years.",
+        "Oxford University is older than the Aztec Empire.",
+        "The average cloud weighs about 1.1 million pounds.",
+        "Wombat poop is cube-shaped. It's the only animal that does this.",
+        "There are more possible chess games than atoms in the observable universe.",
+        "Bananas are berries. Strawberries are not.",
+        "A group of flamingos is called a flamboyance.",
+        "Nintendo was founded in 1889. It started as a playing card company.",
+        "The moon is slowly drifting away from Earth — about 3.8cm per year.",
+        "Crows can recognize human faces and hold grudges.",
+        "Octopuses have three hearts and blue blood.",
+        "The longest English word you can type with one hand is 'stewardesses'.",
     ]
-    return random.choice(options)
+    return _split_text(random.choice(facts), max_chars=38)
 
 
 def _split_text(text: str, max_chars: int = 35) -> list:
