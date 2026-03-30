@@ -173,7 +173,7 @@ def _reddit_top_facts(subreddit: str, strip_prefix: str = "") -> list:
         return []
 
     fact = random.choice(candidates[:15])
-    return _split_text(fact, max_chars=38)
+    return _split_text(fact, max_chars=22)
 
 
 def _til_reddit() -> list:
@@ -211,7 +211,7 @@ def _useless_fact_api() -> list:
         if sep in text[20:]:
             text = text.split(sep)[0] + sep.strip()
             break
-    return _split_text(text[:130], max_chars=38)
+    return _split_text(text[:130], max_chars=22)
 
 
 def _numbers_fact_api() -> list:
@@ -229,7 +229,7 @@ def _numbers_fact_api() -> list:
     words = set(text.lower().split())
     if words & _BLOCKED:
         return []
-    return _split_text(text[:130], max_chars=38)
+    return _split_text(text[:130], max_chars=22)
 
 
 def _fallback_facts() -> list:
@@ -252,10 +252,10 @@ def _fallback_facts() -> list:
         "Octopuses have three hearts and blue blood.",
         "The longest English word you can type with one hand is 'stewardesses'.",
     ]
-    return _split_text(random.choice(facts), max_chars=38)
+    return _split_text(random.choice(facts), max_chars=22)
 
 
-def _split_text(text: str, max_chars: int = 35) -> list:
+def _split_text(text: str, max_chars: int = 22) -> list:
     """Split text into lines of max_chars, breaking at word boundaries."""
     words = text.split()
     lines = []
@@ -270,7 +270,7 @@ def _split_text(text: str, max_chars: int = 35) -> list:
             current = word
     if current:
         lines.append(current)
-    return lines[:3]  # max 3 lines
+    return lines[:4]  # max 4 lines
 
 
 # -- Original poem generator (disabled — kept for reference) --

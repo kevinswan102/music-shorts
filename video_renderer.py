@@ -307,8 +307,8 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
         # Start poem at bar 2 (skip first bar to let viewer settle in)
         # Each subsequent line appears at the next bar boundary
         # All lines stay visible once they appear (no disappear)
-        poem_y_start = 600  # centered area, easy to read on 1920px tall screen
-        line_spacing = 55
+        poem_y_start = 540  # centered area, easy to read on 1920px tall screen
+        line_spacing = 92
 
         for i, line in enumerate(poem_lines):
             safe_line = _escape(line)
@@ -324,27 +324,27 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
             y_pos = poem_y_start + i * line_spacing
             filters.append(
                 f"drawtext=text='{safe_line}':"
-                f"fontsize=36:fontcolor=white@0.9:"
-                f"borderw=2:bordercolor=black@0.6:"
-                f"box=1:boxcolor=black@0.3:boxborderw=8:"
+                f"fontsize=72:fontcolor=yellow:"
+                f"borderw=5:bordercolor=black:"
                 f"x=(w-text_w)/2:y={y_pos}:"
                 f"enable='between(t\\,{appear_at:.2f}\\,{disappear_at:.2f})'"
             )
 
-    # Song title — visible from start, subtle
+    # Song title — visible from start, bottom of screen
     filters.append(
         f"drawtext=text='{safe_track}':"
-        f"fontsize=44:fontcolor=white@0.85:"
-        f"borderw=2:bordercolor=black@0.5:"
-        f"x=(w-text_w)/2:y=h-200"
+        f"fontsize=62:fontcolor=white@0.90:"
+        f"borderw=3:bordercolor=black@0.6:"
+        f"box=1:boxcolor=black@0.35:boxborderw=10:"
+        f"x=(w-text_w)/2:y=h-250"
     )
 
     # Artist name — fades in later (around 30% through the clip)
     filters.append(
         f"drawtext=text='{safe_artist}':"
-        f"fontsize=30:fontcolor=white:"
-        f"borderw=1:bordercolor=black@0.4:"
-        f"x=(w-text_w)/2:y=h-155:"
+        f"fontsize=48:fontcolor=white:"
+        f"borderw=2:bordercolor=black@0.5:"
+        f"x=(w-text_w)/2:y=h-175:"
         f"enable='gte(t\\,{artist_in:.1f})':"
         f"alpha='if(gte(t\\,{artist_fade_end:.1f})\\,0.6\\,(t-{artist_in:.1f})/{artist_fade_end - artist_in:.1f}*0.6)'"
     )
@@ -352,9 +352,10 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     # CTA — appears last 4 seconds, centered
     filters.append(
         f"drawtext=text='Stream now - link in description':"
-        f"fontsize=40:fontcolor=white@0.9:"
-        f"borderw=2:bordercolor=black@0.6:"
-        f"x=(w-text_w)/2:y=h/2-20:"
+        f"fontsize=58:fontcolor=white@0.9:"
+        f"borderw=3:bordercolor=black@0.7:"
+        f"box=1:boxcolor=black@0.4:boxborderw=12:"
+        f"x=(w-text_w)/2:y=h/2-30:"
         f"enable='gte(t\\,{cta_start:.1f})'"
     )
 
