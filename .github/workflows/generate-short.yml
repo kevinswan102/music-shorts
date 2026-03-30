@@ -55,7 +55,8 @@ jobs:
           SPOTIFY_URL: ${{ secrets.SPOTIFY_URL }}
           APPLE_MUSIC_URL: ${{ secrets.APPLE_MUSIC_URL }}
           FREECASH_URL: ${{ secrets.FREECASH_URL }}
-          NUM_SHORTS: '2'
+          NUM_SHORTS: '4'
+          SCHEDULE_UPLOADS: 'true'
         run: python generate_short.py
 
       - name: Commit archive.txt

@@ -13,6 +13,7 @@ import os
 import sys
 import logging
 import gc
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -33,6 +34,29 @@ import re
 
 ARTIST_NAME = os.getenv("ARTIST_NAME", "Unknown Artist")
 NUM_SHORTS = int(os.getenv("NUM_SHORTS", "2"))
+
+# Publishing slots in UTC hours — 10am / 1pm / 6pm / 9pm ET
+_PUBLISH_SLOTS_UTC = [14, 17, 22, 1]
+
+
+def _get_publish_schedule(n: int) -> list:
+    """Return n UTC ISO8601 publish times spread across today's schedule.
+    Slots: 14:00, 17:00, 22:00, 01:00 UTC (= 10am, 1pm, 6pm, 9pm ET).
+    Any slot already in the past is bumped to tomorrow at the same hour.
+    Returns empty list if SCHEDULE_UPLOADS env var is not 'true'.
+    """
+    if os.getenv("SCHEDULE_UPLOADS", "true").lower() != "true":
+        return []
+    now = datetime.now(timezone.utc)
+    times = []
+    for h in _PUBLISH_SLOTS_UTC[:n]:
+        # Slot 01 is after midnight UTC — always the next calendar day
+        offset_days = 1 if h < 6 else 0
+        candidate = now.replace(hour=h, minute=0, second=0, microsecond=0) + timedelta(days=offset_days)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        times.append(candidate.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    return times
 
 
 def clean_song_title(raw_title: str) -> str:
@@ -283,7 +307,8 @@ def render_and_upload_short(audio_path: str, analysis: dict,
                              window_start: float, window_end: float,
                              song_title: str, genre: str,
                              bpm: float, energy: str, brightness: str,
-                             texture: str, short_num: int) -> bool:
+                             texture: str, short_num: int,
+                             publish_at: str = None) -> bool:
     """Render and upload a single short from a specific audio window.
     Returns True on success."""
     logger.info(f"--- Short {short_num}: {window_start:.1f}s - {window_end:.1f}s ---")
@@ -332,13 +357,17 @@ def render_and_upload_short(audio_path: str, analysis: dict,
     description_text = generate_description(song_title, genre)
     from youtube_uploader import YouTubeUploader
     uploader = YouTubeUploader()
-    result = uploader.upload_video({
+    upload_payload = {
         "video_path": final_video,
         "track_name": song_title,
         "artist": ARTIST_NAME,
         "genre": genre,
         "description_text": description_text,
-    })
+    }
+    if publish_at:
+        upload_payload["publish_at"] = publish_at
+        logger.info(f"Short {short_num} scheduled for: {publish_at}")
+    result = uploader.upload_video(upload_payload)
 
     success = False
     if result.get("success"):
@@ -410,12 +439,21 @@ def main():
     windows = analysis.get("all_windows", [(analysis["best_start"], analysis["best_end"])])
     logger.info(f"Generating {len(windows)} shorts from different sections")
 
+    # Calculate staggered publish times (10am / 1pm / 6pm / 9pm ET)
+    publish_schedule = _get_publish_schedule(len(windows))
+    if publish_schedule:
+        logger.info(f"Publish schedule: {publish_schedule}")
+    else:
+        logger.info("Uploading immediately (SCHEDULE_UPLOADS not enabled)")
+
     successes = 0
     for i, (ws, we) in enumerate(windows):
+        publish_at = publish_schedule[i] if i < len(publish_schedule) else None
         ok = render_and_upload_short(
             audio_path, analysis, ws, we,
             song_title, genre, bpm, energy, brightness, texture,
             short_num=i + 1,
+            publish_at=publish_at,
         )
         if ok:
             successes += 1

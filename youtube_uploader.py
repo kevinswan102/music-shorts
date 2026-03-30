@@ -149,6 +149,7 @@ class YouTubeUploader:
 
             if self.skip_upload:
                 metadata = self._generate_metadata(video_data)
+                publish_at = video_data.get('publish_at')
                 return {
                     'success': False,
                     'mock_upload': True,
@@ -157,7 +158,8 @@ class YouTubeUploader:
                         'title': metadata['title'],
                         'description_length': len(metadata['description']),
                         'tags_count': len(metadata['tags']),
-                        'privacy': self.privacy_status,
+                        'privacy': 'private (scheduled)' if publish_at else self.privacy_status,
+                        'publish_at': publish_at or 'immediate',
                     },
                 }
 
@@ -181,6 +183,15 @@ class YouTubeUploader:
         try:
             logger.info(f"Starting upload: {video_path} ({os.path.getsize(video_path) / (1024*1024):.1f} MB)")
 
+            publish_at = video_data.get('publish_at')  # ISO 8601 UTC, e.g. "2026-04-01T14:00:00Z"
+            status_block = {
+                'privacyStatus': 'private' if publish_at else self.privacy_status,
+                'selfDeclaredMadeForKids': False,
+            }
+            if publish_at:
+                status_block['publishAt'] = publish_at
+                logger.info(f"Scheduled publish: {publish_at}")
+
             body = {
                 'snippet': {
                     'title': metadata['title'],
@@ -188,10 +199,7 @@ class YouTubeUploader:
                     'tags': metadata['tags'],
                     'categoryId': self.category_id,
                 },
-                'status': {
-                    'privacyStatus': self.privacy_status,
-                    'selfDeclaredMadeForKids': False,
-                },
+                'status': status_block,
             }
 
             media = MediaFileUpload(video_path, chunksize=-1, resumable=True, mimetype='video/mp4')
