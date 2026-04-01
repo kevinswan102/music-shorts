@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+"""
+generate_livestream_video.py — Build a long-form livestream video from all stardrift tracks.
+
+Renders full-length beat-synced videos for every track in the GitHub Release,
+concatenates them into a single MP4 suitable for looping as a YouTube livestream.
+
+Usage (locally or via GitHub Actions build-livestream.yml):
+    python generate_livestream_video.py
+"""
+
+import os
+import sys
+import gc
+import logging
+import subprocess
+import requests
+from typing import List, Optional
+
+from dotenv import load_dotenv
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("generate_livestream_video")
+
+from music_source import list_channel_videos, download_audio, _get_release_assets
+from beat_analyzer import analyze_track, get_beat_intervals
+from footage_fetcher import fetch_footage, classify_genre_llm
+from video_renderer import render_short
+from generate_short import clean_song_title
+
+ARTIST_NAME = os.getenv("ARTIST_NAME", "Unknown Artist")
+REPO = os.getenv("GITHUB_REPOSITORY", "kevinswan102/music-shorts")
+RELEASE_TAG = "audio-tracks"
+OUTPUT_PATH = os.getenv("LIVESTREAM_OUTPUT", "/tmp/livestream.mp4")
+UPLOAD_TO_RELEASE = os.getenv("UPLOAD_TO_RELEASE", "true").lower() == "true"
+# More clips for full-length tracks (cycles with random seek so variety holds up)
+FOOTAGE_CLIPS = int(os.getenv("FOOTAGE_CLIPS", "20"))
+# Cap tracks per build run — 150+ tracks would exceed GitHub Actions 6h limit
+MAX_TRACKS = int(os.getenv("MAX_TRACKS", "15"))
+
+
+def get_all_available_ids() -> set:
+    """Return set of track IDs that have audio uploaded to the GitHub Release."""
+    assets = _get_release_assets()
+    return {name.replace(".mp3", "") for name in assets if name.endswith(".mp3")}
+
+
+def render_full_track(audio_path: str, song_title: str) -> Optional[str]:
+    """
+    Render a full-length beat-synced video for one track.
+    Same pipeline as the shorts but window = full track (0 → duration).
+    Returns path to final MP4, or None on failure.
+    """
+    logger.info(f"Analyzing: {song_title}")
+    analysis = analyze_track(audio_path)
+    bpm = analysis["bpm"]
+    duration = analysis["duration"]
+    energy = analysis.get("energy", "")
+    brightness = analysis.get("brightness", "")
+    texture = analysis.get("texture", "")
+
+    genre = classify_genre_llm(song_title, bpm=bpm, energy=energy,
+                                brightness=brightness, texture=texture)
+    logger.info(f"Genre: {genre} | BPM: {bpm:.0f} | Duration: {duration:.1f}s")
+
+    # Beat intervals for the FULL track (not a 30s window)
+    beat_intervals = get_beat_intervals(
+        analysis["all_beat_times"],
+        start_offset=0.0,
+        segment_duration=duration,
+    )
+    logger.info(f"Beat intervals: {len(beat_intervals)} cuts over {duration:.0f}s")
+
+    footage_paths = fetch_footage(
+        song_title,
+        num_clips=FOOTAGE_CLIPS,
+        bpm=bpm,
+        energy=energy,
+        brightness=brightness,
+        texture=texture,
+    )
+    if not footage_paths:
+        logger.error(f"No footage fetched for '{song_title}', skipping.")
+        return None
+
+    # render_short works for any duration — same function used by the Shorts pipeline
+    final_video = render_short(
+        audio_segment_path=audio_path,
+        footage_paths=footage_paths,
+        beat_intervals=beat_intervals,
+        track_name=song_title,
+        artist=ARTIST_NAME,
+        genre=genre,
+        poem_lines=None,   # no overlay text for long-form
+        bpm=bpm,
+        output_dir="/tmp",
+    )
+
+    for path in footage_paths:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    gc.collect()
+
+    return final_video
+
+
+def concat_all(track_videos: List[str], output_path: str) -> str:
+    """Concatenate rendered track videos into one master file via ffmpeg stream-copy."""
+    concat_list = "/tmp/ls_concat.txt"
+    with open(concat_list, "w") as f:
+        for v in track_videos:
+            f.write(f"file '{v}'\n")
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", concat_list,
+        "-c", "copy",
+        output_path,
+    ]
+    subprocess.run(cmd, check=True, timeout=600)
+    try:
+        os.unlink(concat_list)
+    except OSError:
+        pass
+    return output_path
+
+
+def upload_to_release(file_path: str) -> bool:
+    """Upload livestream.mp4 to the GitHub Release, replacing any existing copy."""
+    github_token = os.getenv("GITHUB_TOKEN", "")
+    if not github_token:
+        logger.error("GITHUB_TOKEN not set — skipping release upload")
+        return False
+
+    api_base = f"https://api.github.com/repos/{REPO}"
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    resp = requests.get(f"{api_base}/releases/tags/{RELEASE_TAG}", headers=headers, timeout=15)
+    if resp.status_code != 200:
+        logger.error(f"Release '{RELEASE_TAG}' not found: {resp.status_code}")
+        return False
+    release_id = resp.json()["id"]
+
+    # Delete old livestream.mp4 if present
+    assets_resp = requests.get(f"{api_base}/releases/{release_id}/assets",
+                                headers=headers, timeout=15)
+    if assets_resp.status_code == 200:
+        for asset in assets_resp.json():
+            if asset["name"] == "livestream.mp4":
+                requests.delete(f"{api_base}/releases/assets/{asset['id']}",
+                                headers=headers, timeout=15)
+                logger.info("Deleted old livestream.mp4 from release")
+
+    file_size = os.path.getsize(file_path)
+    logger.info(f"Uploading livestream.mp4 ({file_size / (1024*1024):.0f} MB) ...")
+    upload_url = (
+        f"https://uploads.github.com/repos/{REPO}/releases/{release_id}/assets"
+        f"?name=livestream.mp4"
+    )
+    with open(file_path, "rb") as f:
+        up_resp = requests.post(
+            upload_url,
+            headers={**headers, "Content-Type": "video/mp4"},
+            data=f,
+            timeout=3600,
+        )
+
+    if up_resp.status_code in (200, 201):
+        url = up_resp.json().get("browser_download_url", "")
+        logger.info(f"Upload complete: {url}")
+        return True
+
+    logger.error(f"Upload failed {up_resp.status_code}: {up_resp.text[:300]}")
+    return False
+
+
+def main():
+    logger.info("=" * 60)
+    logger.info("STARDRIFT LIVESTREAM VIDEO BUILDER")
+    logger.info("=" * 60)
+
+    # Get channel metadata (titles) for all tracks
+    logger.info("Scanning channel for track metadata...")
+    videos = list_channel_videos()
+    video_meta = {v["id"]: v for v in videos}
+    logger.info(f"Channel metadata: {len(video_meta)} tracks")
+
+    # Only process tracks that have audio uploaded to the release
+    available_ids = get_all_available_ids()
+    logger.info(f"Tracks with uploaded audio: {len(available_ids)}")
+
+    if not available_ids:
+        logger.error("No audio files found in GitHub Release. Run upload_tracks.py first.")
+        sys.exit(1)
+
+    track_videos = []
+    processed = 0
+
+    ids_to_process = sorted(available_ids)[:MAX_TRACKS]
+    logger.info(f"Processing {len(ids_to_process)} tracks (MAX_TRACKS={MAX_TRACKS})")
+
+    for i, track_id in enumerate(ids_to_process):
+        meta = video_meta.get(track_id)
+        raw_title = meta["title"] if meta else track_id
+        song_title = clean_song_title(raw_title)
+        track_url = (meta["url"] if meta
+                     else f"https://www.youtube.com/watch?v={track_id}")
+
+        logger.info(f"\n[{i+1}/{len(available_ids)}] {song_title} (ID: {track_id})")
+
+        audio_path = download_audio(track_url, output_dir="/tmp")
+        if not audio_path:
+            logger.warning(f"  Audio download failed for {track_id}, skipping.")
+            continue
+
+        video_path = render_full_track(audio_path, song_title)
+
+        try:
+            os.unlink(audio_path)
+        except OSError:
+            pass
+
+        if video_path:
+            track_videos.append(video_path)
+            processed += 1
+            logger.info(f"  Rendered: {video_path}")
+        else:
+            logger.warning(f"  Render failed for {song_title}, skipping.")
+
+    if not track_videos:
+        logger.error("No tracks rendered successfully. Exiting.")
+        sys.exit(1)
+
+    logger.info(f"\nConcatenating {len(track_videos)} tracks into {OUTPUT_PATH} ...")
+    concat_all(track_videos, OUTPUT_PATH)
+
+    for v in track_videos:
+        try:
+            os.unlink(v)
+        except OSError:
+            pass
+    gc.collect()
+
+    size_mb = os.path.getsize(OUTPUT_PATH) / (1024 * 1024)
+    logger.info(f"Livestream video ready: {OUTPUT_PATH} ({size_mb:.0f} MB)")
+    logger.info(f"Tracks rendered: {processed}/{len(available_ids)}")
+
+    if UPLOAD_TO_RELEASE:
+        ok = upload_to_release(OUTPUT_PATH)
+        if not ok:
+            logger.error("Release upload failed.")
+            sys.exit(1)
+    else:
+        logger.info("UPLOAD_TO_RELEASE=false — video saved locally only.")
+
+    logger.info("Done.")
+
+
+if __name__ == "__main__":
+    main()

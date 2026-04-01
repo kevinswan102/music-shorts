@@ -1,0 +1,46 @@
+name: Build Livestream Video
+
+on:
+  workflow_dispatch:  # Manual trigger — run when new tracks added or to refresh
+
+permissions:
+  contents: write  # Needed to upload to GitHub Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours max
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg libsndfile1
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build livestream video
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          LLM_PROVIDER: 'groq'
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SOURCE_CHANNEL_URL: ${{ secrets.SOURCE_CHANNEL_URL }}
+          ARTIST_NAME: ${{ secrets.ARTIST_NAME }}
+          UPLOAD_TO_RELEASE: 'true'
+          FOOTAGE_CLIPS: '20'
+          LIVESTREAM_OUTPUT: '/tmp/livestream.mp4'
+        run: python generate_livestream_video.py

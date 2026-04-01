@@ -1,0 +1,62 @@
+name: Stream Stardrift Live
+
+on:
+  schedule:
+    # Runs every 6 hours — streams for 5h 45min then exits, next run picks up
+    - cron: '0 */6 * * *'
+  workflow_dispatch:  # Manual trigger for testing
+
+jobs:
+  stream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours max
+
+    steps:
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - name: Download livestream video from GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_URL="https://api.github.com/repos/${{ github.repository }}/releases/tags/audio-tracks"
+          ASSET_URL=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$RELEASE_URL" | \
+            python3 -c "import sys,json; assets=json.load(sys.stdin).get('assets',[]); \
+              match=[a['browser_download_url'] for a in assets if a['name']=='livestream.mp4']; \
+              print(match[0] if match else '')")
+          if [ -z "$ASSET_URL" ]; then
+            echo "ERROR: livestream.mp4 not found in release. Run build-livestream first."
+            exit 1
+          fi
+          echo "Downloading from: $ASSET_URL"
+          curl -L -o /tmp/livestream.mp4 "$ASSET_URL"
+          ls -lh /tmp/livestream.mp4
+
+      - name: Stream to YouTube
+        env:
+          YOUTUBE_STREAM_KEY: ${{ secrets.YOUTUBE_STREAM_KEY }}
+        run: |
+          # Stream for 5h 45min (20700s) — leaves buffer before 6h job timeout
+          # -stream_loop -1 loops indefinitely until -t cutoff
+          # YouTube recommended settings for 1080p vertical: 3500kbps video, 128kbps audio
+          ffmpeg -re \
+            -stream_loop -1 \
+            -i /tmp/livestream.mp4 \
+            -t 20700 \
+            -c:v libx264 \
+            -preset veryfast \
+            -b:v 3500k \
+            -maxrate 3500k \
+            -bufsize 7000k \
+            -pix_fmt yuv420p \
+            -g 60 \
+            -keyint_min 60 \
+            -c:a aac \
+            -b:a 128k \
+            -ar 44100 \
+            -f flv \
+            "rtmp://a.rtmp.youtube.com/live2/$YOUTUBE_STREAM_KEY"
