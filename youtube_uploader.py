@@ -77,13 +77,15 @@ class YouTubeUploader:
             # Priority 0: YOUTUBE_REFRESH_TOKEN env var (GitHub Actions / CI path)
             refresh_token_env = os.getenv('YOUTUBE_REFRESH_TOKEN')
             if refresh_token_env:
+                # Do NOT pass scopes= here — when scopes are set, google-auth includes a `scope`
+                # parameter in the refresh POST body, which Google rejects with `invalid_scope`.
+                # Scopes are already baked into the refresh token.
                 creds = Credentials(
                     token=None,
                     refresh_token=refresh_token_env,
                     token_uri='https://oauth2.googleapis.com/token',
                     client_id=self.client_id,
                     client_secret=self.client_secret,
-                    scopes=self.scopes,
                 )
                 try:
                     creds.refresh(Request())
