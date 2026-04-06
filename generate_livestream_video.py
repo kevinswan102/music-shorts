@@ -111,7 +111,12 @@ def render_full_track(audio_path: str, song_title: str) -> Optional[str]:
 
 
 def concat_all(track_videos: List[str], output_path: str) -> str:
-    """Concatenate rendered track videos into one master file via ffmpeg stream-copy."""
+    """Concatenate rendered track videos into one master file, re-encoding at lower bitrate.
+
+    Re-encoding at 2500kbps video + 128kbps audio keeps quality solid for a livestream
+    while shrinking a 40-min 9Mbps original (~2.5GB) down to ~800MB — small enough to
+    upload to a GitHub Release reliably.
+    """
     concat_list = "/tmp/ls_concat.txt"
     with open(concat_list, "w") as f:
         for v in track_videos:
@@ -122,10 +127,20 @@ def concat_all(track_videos: List[str], output_path: str) -> str:
         "-f", "concat",
         "-safe", "0",
         "-i", concat_list,
-        "-c", "copy",
+        # Re-encode at ~2500kbps video + 128kbps audio instead of stream-copying at 9+Mbps
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-b:v", "2500k",
+        "-maxrate", "2500k",
+        "-bufsize", "5000k",
+        "-pix_fmt", "yuv420p",
+        "-g", "60",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-ar", "48000",
         output_path,
     ]
-    subprocess.run(cmd, check=True, timeout=600)
+    subprocess.run(cmd, check=True, timeout=7200)  # up to 2h for long files
     try:
         os.unlink(concat_list)
     except OSError:
@@ -134,54 +149,45 @@ def concat_all(track_videos: List[str], output_path: str) -> str:
 
 
 def upload_to_release(file_path: str) -> bool:
-    """Upload livestream.mp4 to the GitHub Release, replacing any existing copy."""
+    """Upload livestream.mp4 to the GitHub Release using gh CLI.
+
+    gh handles large-file uploads far more reliably than raw requests.post() —
+    it uses chunked transfer and built-in retries.
+    --clobber replaces any existing asset with the same name.
+    """
     github_token = os.getenv("GITHUB_TOKEN", "")
     if not github_token:
         logger.error("GITHUB_TOKEN not set — skipping release upload")
         return False
 
-    api_base = f"https://api.github.com/repos/{REPO}"
-    headers = {
-        "Authorization": f"Bearer {github_token}",
-        "Accept": "application/vnd.github+json",
-    }
-
-    resp = requests.get(f"{api_base}/releases/tags/{RELEASE_TAG}", headers=headers, timeout=15)
-    if resp.status_code != 200:
-        logger.error(f"Release '{RELEASE_TAG}' not found: {resp.status_code}")
-        return False
-    release_id = resp.json()["id"]
-
-    # Delete old livestream.mp4 if present
-    assets_resp = requests.get(f"{api_base}/releases/{release_id}/assets",
-                                headers=headers, timeout=15)
-    if assets_resp.status_code == 200:
-        for asset in assets_resp.json():
-            if asset["name"] == "livestream.mp4":
-                requests.delete(f"{api_base}/releases/assets/{asset['id']}",
-                                headers=headers, timeout=15)
-                logger.info("Deleted old livestream.mp4 from release")
-
     file_size = os.path.getsize(file_path)
-    logger.info(f"Uploading livestream.mp4 ({file_size / (1024*1024):.0f} MB) ...")
-    upload_url = (
-        f"https://uploads.github.com/repos/{REPO}/releases/{release_id}/assets"
-        f"?name=livestream.mp4"
-    )
-    with open(file_path, "rb") as f:
-        up_resp = requests.post(
-            upload_url,
-            headers={**headers, "Content-Type": "video/mp4"},
-            data=f,
-            timeout=3600,
-        )
+    logger.info(f"Uploading livestream.mp4 ({file_size / (1024*1024):.0f} MB) via gh CLI ...")
 
-    if up_resp.status_code in (200, 201):
-        url = up_resp.json().get("browser_download_url", "")
-        logger.info(f"Upload complete: {url}")
+    env = os.environ.copy()
+    env["GH_TOKEN"] = github_token  # gh CLI reads GH_TOKEN
+
+    result = subprocess.run(
+        [
+            "gh", "release", "upload", RELEASE_TAG,
+            file_path,
+            "--repo", REPO,
+            "--clobber",          # replace existing asset with same name
+        ],
+        env=env,
+        timeout=3600,             # 1h upload timeout
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0:
+        logger.info(f"Upload complete.")
+        if result.stdout.strip():
+            logger.info(result.stdout.strip())
         return True
 
-    logger.error(f"Upload failed {up_resp.status_code}: {up_resp.text[:300]}")
+    logger.error(f"Upload failed (exit {result.returncode}):")
+    if result.stderr:
+        logger.error(result.stderr[-500:])
     return False
 
 
