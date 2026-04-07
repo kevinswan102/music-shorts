@@ -43,4 +43,15 @@ jobs:
           UPLOAD_TO_RELEASE: 'true'
           FOOTAGE_CLIPS: '20'
           LIVESTREAM_OUTPUT: '/tmp/livestream.mp4'
+          # Music / artist links
+          SPOTIFY_URL: ${{ secrets.SPOTIFY_URL }}
+          APPLE_MUSIC_URL: ${{ secrets.APPLE_MUSIC_URL }}
+          BEATSTARS_URL: ${{ secrets.BEATSTARS_URL }}
+          HYPERFOLLOW_URL: ${{ secrets.HYPERFOLLOW_URL }}
+          # Affiliate links
+          AFFILIATE_COINBASE: ${{ secrets.AFFILIATE_COINBASE }}
+          AFFILIATE_CRYPTOCOM: ${{ secrets.AFFILIATE_CRYPTOCOM }}
+          AFFILIATE_KALSHI: ${{ secrets.AFFILIATE_KALSHI }}
+          AFFILIATE_PAYPAL: ${{ secrets.AFFILIATE_PAYPAL }}
+          FREECASH_URL: ${{ secrets.FREECASH_URL }}
         run: python generate_livestream_video.py

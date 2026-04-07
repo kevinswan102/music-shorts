@@ -12,6 +12,7 @@ Usage (locally or via GitHub Actions build-livestream.yml):
 import os
 import sys
 import gc
+import json
 import logging
 import subprocess
 import requests
@@ -197,6 +198,83 @@ def upload_to_release(file_path: str) -> bool:
     return False
 
 
+def generate_stream_meta(track_titles: List[str]) -> dict:
+    """Generate a YouTube title + description for the livestream using the LLM."""
+    artist = ARTIST_NAME
+    track_list = "\n".join(f"• {t}" for t in track_titles) if track_titles else "• (tracks loading)"
+
+    # Try LLM first
+    try:
+        from llm_client import get_llm_client, llm_available
+        if llm_available():
+            client, model = get_llm_client()
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Write a YouTube LIVE stream title and description for {artist}'s music.\n"
+                        f"Tracks in this stream: {', '.join(track_titles[:8])}.\n\n"
+                        f"Rules:\n"
+                        f"- Title: max 80 chars, include artist name, '24/7 LIVE', mood (chill/phonk/lofi), "
+                        f"and 1-2 emojis. No year.\n"
+                        f"- Description: 3-4 lines. Mention it loops 24/7, describe the vibe, "
+                        f"say 'subscribe for more'. Sound human, not corporate.\n\n"
+                        f"Reply in this exact format:\n"
+                        f"TITLE: <title here>\n"
+                        f"DESC: <description here>"
+                    ),
+                }],
+                max_tokens=200,
+                temperature=0.7,
+            )
+            raw = resp.choices[0].message.content.strip()
+            title, desc = "", ""
+            for line in raw.split("\n"):
+                if line.startswith("TITLE:"):
+                    title = line[6:].strip()[:100]
+                elif line.startswith("DESC:"):
+                    desc = line[5:].strip()
+            if title:
+                logger.info(f"LLM title: {title}")
+                return {"title": title, "description": desc, "track_list": track_list}
+    except Exception as e:
+        logger.warning(f"LLM meta generation failed: {e}")
+
+    # Fallback
+    title = f"🎵 {artist} — 24/7 Chill Music LIVE | Beat-Synced Visuals"[:100]
+    desc = (
+        f"Looping 24/7 — {artist} beats with beat-synced visuals.\n"
+        f"New tracks added regularly. Subscribe so you never miss a drop.\n"
+        f"Best with headphones on."
+    )
+    return {"title": title, "description": desc, "track_list": track_list}
+
+
+def upload_meta_to_release(meta: dict) -> bool:
+    """Upload livestream_meta.json to the GitHub Release so stream-live.yml can read it."""
+    github_token = os.getenv("GITHUB_TOKEN", "")
+    if not github_token:
+        return False
+
+    meta_path = "/tmp/livestream_meta.json"
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+
+    env = os.environ.copy()
+    env["GH_TOKEN"] = github_token
+    result = subprocess.run(
+        ["gh", "release", "upload", RELEASE_TAG, meta_path,
+         "--repo", REPO, "--clobber"],
+        env=env, timeout=60, capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        logger.info("Uploaded livestream_meta.json to release")
+        return True
+    logger.warning(f"Meta upload failed: {result.stderr[-200:]}")
+    return False
+
+
 def main():
     logger.info("=" * 60)
     logger.info("STARDRIFT LIVESTREAM VIDEO BUILDER")
@@ -217,6 +295,7 @@ def main():
         sys.exit(1)
 
     track_videos = []
+    rendered_titles = []
     processed = 0
 
     ids_to_process = sorted(available_ids)[:MAX_TRACKS]
@@ -245,6 +324,7 @@ def main():
 
         if video_path:
             track_videos.append(video_path)
+            rendered_titles.append(song_title)
             processed += 1
             logger.info(f"  Rendered: {video_path}")
         else:
@@ -268,11 +348,70 @@ def main():
     logger.info(f"Livestream video ready: {OUTPUT_PATH} ({size_mb:.0f} MB)")
     logger.info(f"Tracks rendered: {processed}/{len(available_ids)}")
 
+    # Generate title + description from track list
+    logger.info("Generating stream title and description...")
+    stream_meta = generate_stream_meta(rendered_titles)
+
+    # Append affiliate links + music links to description
+    spotify_url   = os.getenv("SPOTIFY_URL", "").strip()
+    apple_url     = os.getenv("APPLE_MUSIC_URL", "").strip()
+    beatstars_url = os.getenv("BEATSTARS_URL", "").strip()
+    hyperfollow   = os.getenv("HYPERFOLLOW_URL", "").strip()
+    freecash_url  = os.getenv("FREECASH_URL", "").strip()
+    coinbase_url  = os.getenv("AFFILIATE_COINBASE", "").strip()
+    cryptocom_url = os.getenv("AFFILIATE_CRYPTOCOM", "https://crypto.com/app/3d2tscf727").strip()
+    kalshi_url    = os.getenv("AFFILIATE_KALSHI", "").strip()
+    paypal_url    = os.getenv("AFFILIATE_PAYPAL", "").strip()
+
+    extra_lines = ["\n━━━━━━━━━━━━━━━━━━━━━━━"]
+
+    # Music / artist links
+    music_links = []
+    if spotify_url:
+        music_links.append(f"🎧 Spotify: {spotify_url}")
+    if apple_url:
+        music_links.append(f"🍎 Apple Music: {apple_url}")
+    if beatstars_url:
+        music_links.append(f"🎹 BeatStars: {beatstars_url}")
+    if hyperfollow:
+        music_links.append(f"🔗 All platforms: {hyperfollow}")
+    if music_links:
+        extra_lines += ["🎵 Stream the music:"] + music_links
+
+    # Track listing
+    extra_lines += [
+        "\n🎶 Tracks in this stream:",
+        stream_meta.get("track_list", ""),
+    ]
+
+    # Affiliate links
+    aff_lines = []
+    if coinbase_url:
+        aff_lines.append(f"💰 Coinbase — $10 free Bitcoin on signup: {coinbase_url}")
+    aff_lines.append(f"🪙 Crypto.com — up to $100 welcome bonus: {cryptocom_url}")
+    if kalshi_url:
+        aff_lines.append(f"🎯 Kalshi — up to $25 trade bonus: {kalshi_url}")
+    if freecash_url:
+        aff_lines.append(f"🎁 Freecash — $10 free on signup: {freecash_url}")
+    if paypal_url:
+        aff_lines.append(f"💸 PayPal — spend $5 get $10 back (new users): {paypal_url}")
+    if aff_lines:
+        extra_lines += ["\n📌 Support the channel (free to sign up):"] + aff_lines
+
+    extra_lines.append("\n⚠️ Not financial advice.")
+    stream_meta["description"] = stream_meta.get("description", "") + "\n" + "\n".join(extra_lines)
+
+    logger.info("=" * 60)
+    logger.info(f"STREAM TITLE:  {stream_meta['title']}")
+    logger.info(f"STREAM DESC:\n{stream_meta['description']}")
+    logger.info("=" * 60)
+
     if UPLOAD_TO_RELEASE:
         ok = upload_to_release(OUTPUT_PATH)
         if not ok:
             logger.error("Release upload failed.")
             sys.exit(1)
+        upload_meta_to_release(stream_meta)
     else:
         logger.info("UPLOAD_TO_RELEASE=false — video saved locally only.")
 
