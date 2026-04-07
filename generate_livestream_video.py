@@ -397,8 +397,6 @@ def main():
         aff_lines.append(f"💸 PayPal — spend $5 get $10 back (new users): {paypal_url}")
     if aff_lines:
         extra_lines += ["\n📌 Support the channel (free to sign up):"] + aff_lines
-
-    extra_lines.append("\n⚠️ Not financial advice.")
     stream_meta["description"] = stream_meta.get("description", "") + "\n" + "\n".join(extra_lines)
 
     logger.info("=" * 60)

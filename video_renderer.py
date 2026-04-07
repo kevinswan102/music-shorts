@@ -408,21 +408,28 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
 
 def mux_audio_video(video_path: str, audio_path: str,
                      output_path: str, total_duration: float = 30.0) -> str:
-    """Mux video with audio. No fades — segment is bar-aligned for clean loop."""
+    """Mux video with audio.
+    We loop the video if it's shorter than the audio (can happen when beat segments
+    don't perfectly cover the full track), then trim the whole output to the exact
+    audio duration so the song always plays completely.
+    """
     cmd = [
         "ffmpeg", "-y",
+        "-stream_loop", "-1",   # loop video indefinitely if shorter than audio
         "-i", video_path,
         "-i", audio_path,
+        "-map", "0:v:0",        # video from first input
+        "-map", "1:a:0",        # audio from second input
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-crf", "23",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "192k",
-        "-shortest",
+        "-t", str(total_duration),   # end exactly when song ends
         output_path,
     ]
-    subprocess.run(cmd, check=True, capture_output=True, timeout=120)
+    subprocess.run(cmd, check=True, capture_output=True, timeout=300)
     return output_path
 
 
