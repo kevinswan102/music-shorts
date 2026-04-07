@@ -41,20 +41,14 @@ jobs:
           YOUTUBE_STREAM_KEY: ${{ secrets.YOUTUBE_STREAM_KEY }}
         run: |
           # Stream for 5h 45min (20700s) — leaves buffer before 6h job timeout
-          # -stream_loop -1 loops indefinitely until -t cutoff
-          # YouTube recommended settings for 1080p vertical: 3500kbps video, 128kbps audio
+          # -stream_loop -1 loops the file indefinitely until -t cutoff
+          # Video is already h264 @ 2500kbps — copy it directly, no re-encode needed.
+          # Audio needs re-encode to 44100 Hz (YouTube FLV requirement; file is 48000 Hz).
           ffmpeg -re \
             -stream_loop -1 \
             -i /tmp/livestream.mp4 \
             -t 20700 \
-            -c:v libx264 \
-            -preset veryfast \
-            -b:v 3500k \
-            -maxrate 3500k \
-            -bufsize 7000k \
-            -pix_fmt yuv420p \
-            -g 60 \
-            -keyint_min 60 \
+            -c:v copy \
             -c:a aac \
             -b:a 128k \
             -ar 44100 \
