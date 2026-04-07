@@ -268,16 +268,36 @@ def concat_segments(segment_paths: List[str], output_path: str) -> str:
     return output_path
 
 
+def _find_font() -> str:
+    """Return the best available font path for ffmpeg drawtext."""
+    candidates = [
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",  # macOS fallback
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return ""  # let ffmpeg use its built-in (last resort)
+
+
 def add_text_overlay(video_path: str, track_name: str, artist: str,
                       output_path: str, total_duration: float = 30.0,
                       poem_lines: list = None, bpm: float = 0) -> str:
     """
     Burn text overlays onto the video using ffmpeg drawtext.
-    - Poem lines: appear one at a time for engagement (upper area)
-    - Song title: visible from start (bottom)
-    - Artist name: fades in later (bottom, below title)
-    - CTA: "Stream now - link in description" appears last 4 seconds
+    - Subscribe badge: top-left corner, always visible
+    - Poem/fun fact lines: appear one at a time mid-screen
+    - Song title: visible from start, bottom
+    - Artist name: fades in later, bottom
+    - CTA: last 4 seconds, centered
     """
+    font = _find_font()
+    font_param = f"fontfile={font}:" if font else ""
+
     def _escape(text: str) -> str:
         return (text
                 .replace("\\", "\\\\")
@@ -295,66 +315,76 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
 
     filters = []
 
-    # Poem lines — appear one per bar, synced to musical structure
+    # Subscribe badge — top-left corner, discreet but always visible
+    # Red pill with white text: "▶ SUBSCRIBE"
+    filters.append(
+        f"drawtext={font_param}text='SUBSCRIBE':"
+        f"fontsize=34:fontcolor=white:"
+        f"box=1:boxcolor=0xff0000@0.80:boxborderw=14:"
+        f"x=28:y=58"
+    )
+    # Small up-arrow above it hinting to tap
+    filters.append(
+        f"drawtext={font_param}text='▶  tap to subscribe':"
+        f"fontsize=22:fontcolor=white@0.65:"
+        f"borderw=2:bordercolor=black@0.5:"
+        f"x=28:y=118"
+    )
+
+    # Fun fact / poem lines — appear one per bar, synced to musical structure
     if poem_lines:
         n = len(poem_lines)
-        # Use bar duration from BPM for musically-synced timing
         if bpm > 0:
             bar_dur = 4 * (60.0 / bpm)  # 4 beats per bar
         else:
-            bar_dur = 4.0  # fallback ~4s per line
+            bar_dur = 4.0
 
-        # Start poem at bar 2 (skip first bar to let viewer settle in)
-        # Each subsequent line appears at the next bar boundary
-        # All lines stay visible once they appear (no disappear)
-        poem_y_start = 540  # centered area, easy to read on 1920px tall screen
-        line_spacing = 92
+        poem_y_start = 520  # center of screen
+        line_spacing = 90
 
         for i, line in enumerate(poem_lines):
             safe_line = _escape(line)
-            # Bar 2 + i bars — synced to the music's rhythm
             appear_at = (2 + i) * bar_dur
-            # Don't let poem appear after 60% of the video
             max_start = total_duration * 0.6
             if appear_at > max_start:
-                appear_at = max_start - (n - 1 - i) * 1.5  # compress spacing
+                appear_at = max_start - (n - 1 - i) * 1.5
                 appear_at = max(1.0, appear_at)
-            # Disappear 1 bar before end so it doesn't feel abrupt
             disappear_at = total_duration - bar_dur
             y_pos = poem_y_start + i * line_spacing
             filters.append(
-                f"drawtext=text='{safe_line}':"
-                f"fontsize=72:fontcolor=yellow:"
-                f"borderw=5:bordercolor=black:"
+                f"drawtext={font_param}text='{safe_line}':"
+                f"fontsize=68:fontcolor=white:"
+                f"borderw=5:bordercolor=black@0.8:"
+                f"box=1:boxcolor=black@0.30:boxborderw=14:"
                 f"x=(w-text_w)/2:y={y_pos}:"
                 f"enable='between(t\\,{appear_at:.2f}\\,{disappear_at:.2f})'"
             )
 
     # Song title — visible from start, bottom of screen
     filters.append(
-        f"drawtext=text='{safe_track}':"
-        f"fontsize=62:fontcolor=white@0.90:"
-        f"borderw=3:bordercolor=black@0.6:"
-        f"box=1:boxcolor=black@0.35:boxborderw=10:"
-        f"x=(w-text_w)/2:y=h-250"
+        f"drawtext={font_param}text='{safe_track}':"
+        f"fontsize=60:fontcolor=white@0.95:"
+        f"borderw=3:bordercolor=black@0.7:"
+        f"box=1:boxcolor=black@0.40:boxborderw=12:"
+        f"x=(w-text_w)/2:y=h-240"
     )
 
-    # Artist name — fades in later (around 30% through the clip)
+    # Artist name — fades in at ~30% through
     filters.append(
-        f"drawtext=text='{safe_artist}':"
-        f"fontsize=48:fontcolor=white:"
+        f"drawtext={font_param}text='{safe_artist}':"
+        f"fontsize=44:fontcolor=white:"
         f"borderw=2:bordercolor=black@0.5:"
-        f"x=(w-text_w)/2:y=h-175:"
+        f"x=(w-text_w)/2:y=h-168:"
         f"enable='gte(t\\,{artist_in:.1f})':"
-        f"alpha='if(gte(t\\,{artist_fade_end:.1f})\\,0.6\\,(t-{artist_in:.1f})/{artist_fade_end - artist_in:.1f}*0.6)'"
+        f"alpha='if(gte(t\\,{artist_fade_end:.1f})\\,0.65\\,(t-{artist_in:.1f})/{artist_fade_end - artist_in:.1f}*0.65)'"
     )
 
     # CTA — appears last 4 seconds, centered
     filters.append(
-        f"drawtext=text='Stream now - link in description':"
-        f"fontsize=58:fontcolor=white@0.9:"
+        f"drawtext={font_param}text='Stream now - link in bio':"
+        f"fontsize=54:fontcolor=white@0.9:"
         f"borderw=3:bordercolor=black@0.7:"
-        f"box=1:boxcolor=black@0.4:boxborderw=12:"
+        f"box=1:boxcolor=black@0.45:boxborderw=14:"
         f"x=(w-text_w)/2:y=h/2-30:"
         f"enable='gte(t\\,{cta_start:.1f})'"
     )
