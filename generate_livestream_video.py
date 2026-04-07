@@ -87,6 +87,12 @@ def render_full_track(audio_path: str, song_title: str) -> Optional[str]:
         logger.error(f"No footage fetched for '{song_title}', skipping.")
         return None
 
+    # Generate a fun fact overlay for each track (keeps viewers engaged during the stream)
+    from generate_short import generate_overlay_text
+    poem_lines = generate_overlay_text()
+    if poem_lines:
+        logger.info(f"Fun fact overlay: {poem_lines}")
+
     # render_short works for any duration — same function used by the Shorts pipeline
     final_video = render_short(
         audio_segment_path=audio_path,
@@ -95,7 +101,7 @@ def render_full_track(audio_path: str, song_title: str) -> Optional[str]:
         track_name=song_title,
         artist=ARTIST_NAME,
         genre=genre,
-        poem_lines=None,   # no overlay text for long-form
+        poem_lines=poem_lines,
         bpm=bpm,
         output_dir="/tmp",
     )
