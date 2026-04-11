@@ -68,11 +68,16 @@ def render_full_track(audio_path: str, song_title: str) -> Optional[str]:
                                 brightness=brightness, texture=texture)
     logger.info(f"Genre: {genre} | BPM: {bpm:.0f} | Duration: {duration:.1f}s")
 
-    # Beat intervals for the FULL track (not a 30s window)
+    # Beat intervals for the FULL track (not a 30s window).
+    # Livestream uses slower cuts (4-10s) vs Shorts (1.5-4s) — ambient background
+    # listening needs clips to breathe, not rapid-fire edits.
     beat_intervals = get_beat_intervals(
         analysis["all_beat_times"],
         start_offset=0.0,
         segment_duration=duration,
+        min_interval=4.0,
+        max_interval=10.0,
+        skip_ratio=0.75,  # skip more beats so clips hold even longer
     )
     logger.info(f"Beat intervals: {len(beat_intervals)} cuts over {duration:.0f}s")
 
@@ -88,11 +93,15 @@ def render_full_track(audio_path: str, song_title: str) -> Optional[str]:
         logger.error(f"No footage fetched for '{song_title}', skipping.")
         return None
 
-    # Generate a fun fact overlay for each track (keeps viewers engaged during the stream)
-    from generate_short import generate_overlay_text
-    poem_lines = generate_overlay_text()
-    if poem_lines:
-        logger.info(f"Fun fact overlay: {poem_lines}")
+    # Generate cycling text sets — one fresh Reddit fact every 35s of the track.
+    # Keeps viewers reading/engaged throughout the full track instead of just the first 30s.
+    CYCLE_SECS = 35.0
+    n_sets = max(1, int(duration / CYCLE_SECS))
+    from generate_short import generate_multiple_overlay_texts
+    poem_sets = generate_multiple_overlay_texts(n_sets)
+    logger.info(f"Generated {len(poem_sets)} text blocks for {duration:.0f}s track")
+    for idx, s in enumerate(poem_sets):
+        logger.info(f"  Block {idx+1}: {' / '.join(s)}")
 
     # render_short works for any duration — same function used by the Shorts pipeline
     final_video = render_short(
@@ -102,9 +111,9 @@ def render_full_track(audio_path: str, song_title: str) -> Optional[str]:
         track_name=song_title,
         artist=ARTIST_NAME,
         genre=genre,
-        poem_lines=poem_lines,
         bpm=bpm,
         output_dir="/tmp",
+        poem_sets=poem_sets,
     )
 
     for path in footage_paths:

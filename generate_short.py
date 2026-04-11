@@ -124,24 +124,31 @@ def generate_description(track_name: str, genre: str) -> str:
 _BLOCKED = {
     "fuck", "shit", "ass", "damn", "hell", "dick", "bitch",
     "sex", "porn", "kill", "die", "dead", "nsfw", "rape", "suicide",
+    "murder", "drug", "heroin", "cocaine", "meth",
 }
+
+# Max chars per overlay line — longer lines = more readable on a big stream screen
+_OVERLAY_MAX_CHARS = 32
 
 
 def generate_overlay_text() -> list:
     """
-    Fetch an interesting fun fact for the video overlay.
-    Tries multiple sources in order, falls back to hardcoded facts.
-    Goal: make viewer pause and read → stays on video longer → hears more of the song.
+    Fetch an interesting/funny Reddit post for the video overlay.
+    Rotates across multiple subreddits for vibes variety.
+    Goal: make viewer pause and read → stays longer → hears more of the song.
     """
     sources = [
-        _til_reddit,          # r/todayilearned top week — proven viral facts
-        _mildly_interesting,  # r/mildlyinteresting top week — curious observations
-        _useless_fact_api,    # uselessfacts.jsph.pl — free, no key
-        _numbers_fact_api,    # numbersapi.com — free, no key, trivia
-        _showerthoughts,      # r/Showerthoughts top week — backup
+        _showerthoughts,      # r/Showerthoughts — thought-provoking one-liners, perfect vibe
+        _til_reddit,          # r/todayilearned — surprising facts
+        _mildly_interesting,  # r/mildlyinteresting — curious observations
+        _interesting_asfuck,  # r/interestingasfuck — wild facts
+        _life_pro_tips,       # r/LifeProTips — useful insight that sparks engagement
+        _useless_fact_api,    # uselessfacts.jsph.pl — free API fallback
+        _numbers_fact_api,    # numbersapi.com — trivia fallback
     ]
     import random
-    random.shuffle(sources[:2])  # randomize TIL vs mildlyinteresting for variety
+    # Shuffle the top sources for variety — don't always start with Showerthoughts
+    random.shuffle(sources[:4])
 
     for source in sources:
         try:
@@ -152,6 +159,28 @@ def generate_overlay_text() -> list:
             logger.warning(f"Overlay source {source.__name__} failed: {e}")
 
     return _fallback_facts()
+
+
+def generate_multiple_overlay_texts(n: int) -> list:
+    """
+    Generate n distinct overlay texts for long-form content (livestream).
+    Each call tries a different source for variety. Returns list of line-lists.
+    """
+    import random
+    texts = []
+    seen: set = set()
+    attempts = 0
+    while len(texts) < n and attempts < n * 3:
+        attempts += 1
+        lines = generate_overlay_text()
+        key = " ".join(lines)
+        if key not in seen:
+            seen.add(key)
+            texts.append(lines)
+    # Pad with fallbacks if needed
+    while len(texts) < n:
+        texts.append(_fallback_facts())
+    return texts
 
 
 def _reddit_top_facts(subreddit: str, strip_prefix: str = "") -> list:
@@ -197,7 +226,7 @@ def _reddit_top_facts(subreddit: str, strip_prefix: str = "") -> list:
         return []
 
     fact = random.choice(candidates[:15])
-    return _split_text(fact, max_chars=22)
+    return _split_text(fact, max_chars=_OVERLAY_MAX_CHARS)
 
 
 def _til_reddit() -> list:
@@ -211,8 +240,18 @@ def _mildly_interesting() -> list:
 
 
 def _showerthoughts() -> list:
-    """r/Showerthoughts top of week — thought-provoking one-liners."""
+    """r/Showerthoughts top of week — thought-provoking one-liners, great for music vibes."""
     return _reddit_top_facts("Showerthoughts")
+
+
+def _interesting_asfuck() -> list:
+    """r/interestingasfuck top of week — wild, mind-blowing facts."""
+    return _reddit_top_facts("interestingasfuck")
+
+
+def _life_pro_tips() -> list:
+    """r/LifeProTips top of week — useful tips that make people think."""
+    return _reddit_top_facts("LifeProTips", strip_prefix="LPT: ")
 
 
 def _useless_fact_api() -> list:
@@ -235,7 +274,7 @@ def _useless_fact_api() -> list:
         if sep in text[20:]:
             text = text.split(sep)[0] + sep.strip()
             break
-    return _split_text(text[:130], max_chars=22)
+    return _split_text(text[:160], max_chars=_OVERLAY_MAX_CHARS)
 
 
 def _numbers_fact_api() -> list:
@@ -253,7 +292,7 @@ def _numbers_fact_api() -> list:
     words = set(text.lower().split())
     if words & _BLOCKED:
         return []
-    return _split_text(text[:130], max_chars=22)
+    return _split_text(text[:160], max_chars=_OVERLAY_MAX_CHARS)
 
 
 def _fallback_facts() -> list:
@@ -276,7 +315,7 @@ def _fallback_facts() -> list:
         "Octopuses have three hearts and blue blood.",
         "The longest English word you can type with one hand is 'stewardesses'.",
     ]
-    return _split_text(random.choice(facts), max_chars=22)
+    return _split_text(random.choice(facts), max_chars=_OVERLAY_MAX_CHARS)
 
 
 def _split_text(text: str, max_chars: int = 22) -> list:
@@ -294,7 +333,7 @@ def _split_text(text: str, max_chars: int = 22) -> list:
             current = word
     if current:
         lines.append(current)
-    return lines[:4]  # max 4 lines
+    return lines[:5]  # max 5 lines
 
 
 # -- Original poem generator (disabled — kept for reference) --

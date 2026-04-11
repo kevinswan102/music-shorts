@@ -286,14 +286,20 @@ def _find_font() -> str:
 
 def add_text_overlay(video_path: str, track_name: str, artist: str,
                       output_path: str, total_duration: float = 30.0,
-                      poem_lines: list = None, bpm: float = 0) -> str:
+                      poem_lines: list = None, bpm: float = 0,
+                      poem_sets: list = None) -> str:
     """
     Burn text overlays onto the video using ffmpeg drawtext.
     - Subscribe badge: top-left corner, always visible
-    - Poem/fun fact lines: appear one at a time mid-screen
+    - Fact/quote text: cycles every ~35s for long videos (poem_sets), or one-shot (poem_lines)
     - Song title: visible from start, bottom
     - Artist name: fades in later, bottom
     - CTA: last 4 seconds, centered
+
+    poem_sets: list of poem_lines lists — used for long-form content (livestream).
+               Each set is shown for CYCLE_SECS seconds, one after another.
+               If provided, overrides poem_lines.
+    poem_lines: single list of text lines — used for Shorts (< 60s).
     """
     font = _find_font()
     font_param = f"fontfile={font}:" if font else ""
@@ -316,14 +322,12 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     filters = []
 
     # Subscribe badge — top-left corner, discreet but always visible
-    # Red pill with white text: "▶ SUBSCRIBE"
     filters.append(
         f"drawtext={font_param}text='SUBSCRIBE':"
         f"fontsize=34:fontcolor=white:"
         f"box=1:boxcolor=0xff0000@0.80:boxborderw=14:"
         f"x=28:y=58"
     )
-    # Small up-arrow above it hinting to tap
     filters.append(
         f"drawtext={font_param}text='▶  tap to subscribe':"
         f"fontsize=22:fontcolor=white@0.65:"
@@ -331,29 +335,46 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
         f"x=28:y=118"
     )
 
-    # Fun fact / poem lines — appear one per bar, synced to musical structure
-    if poem_lines:
-        n = len(poem_lines)
-        if bpm > 0:
-            bar_dur = 4 * (60.0 / bpm)  # 4 beats per bar
-        else:
-            bar_dur = 4.0
+    # Resolve which text sets to show
+    # poem_sets = multiple blocks for long videos; poem_lines = single block for Shorts
+    CYCLE_SECS = 35.0  # how long each text block stays visible in long videos
 
-        poem_y_start = 520  # center of screen
-        line_spacing = 90
+    if poem_sets and len(poem_sets) > 0:
+        all_sets = poem_sets
+    elif poem_lines:
+        all_sets = [poem_lines]
+    else:
+        all_sets = []
 
-        for i, line in enumerate(poem_lines):
+    if bpm > 0:
+        bar_dur = 4 * (60.0 / bpm)
+    else:
+        bar_dur = 4.0
+
+    poem_y_start = 520  # vertical center of screen
+    line_spacing = 80
+
+    for set_idx, lines in enumerate(all_sets):
+        n = len(lines)
+        # Time window this set is visible
+        slot_start = set_idx * CYCLE_SECS
+        slot_end = min(slot_start + CYCLE_SECS, total_duration - bar_dur)
+
+        if slot_start >= total_duration - 2.0:
+            break  # past end of video
+
+        for i, line in enumerate(lines):
             safe_line = _escape(line)
-            appear_at = (2 + i) * bar_dur
-            max_start = total_duration * 0.6
-            if appear_at > max_start:
-                appear_at = max_start - (n - 1 - i) * 1.5
-                appear_at = max(1.0, appear_at)
-            disappear_at = total_duration - bar_dur
+            # Lines appear staggered within the slot, one per bar
+            appear_at = slot_start + (1 + i) * bar_dur
+            if appear_at > slot_end - 1.0:
+                appear_at = slot_end - (n - i) * 1.2
+            appear_at = max(slot_start + 0.5, appear_at)
+            disappear_at = slot_end
             y_pos = poem_y_start + i * line_spacing
             filters.append(
                 f"drawtext={font_param}text='{safe_line}':"
-                f"fontsize=68:fontcolor=white:"
+                f"fontsize=62:fontcolor=white:"
                 f"borderw=5:bordercolor=black@0.8:"
                 f"box=1:boxcolor=black@0.30:boxborderw=14:"
                 f"x=(w-text_w)/2:y={y_pos}:"
@@ -441,7 +462,8 @@ def render_short(audio_segment_path: str,
                   genre: str = "default",
                   poem_lines: list = None,
                   bpm: float = 0,
-                  output_dir: str = "/tmp") -> Optional[str]:
+                  output_dir: str = "/tmp",
+                  poem_sets: list = None) -> Optional[str]:
     """
     Top-level render function:
     1. Cut footage to beat intervals with color grading
@@ -478,7 +500,8 @@ def render_short(audio_segment_path: str,
         # Calculate total duration from beat intervals for CTA timing
         total_dur = beat_intervals[-1][1] if beat_intervals else 30.0
         add_text_overlay(concat_path, track_name, artist, text_path,
-                         total_duration=total_dur, poem_lines=poem_lines, bpm=bpm)
+                         total_duration=total_dur, poem_lines=poem_lines, bpm=bpm,
+                         poem_sets=poem_sets)
     except subprocess.CalledProcessError as e:
         logger.error(f"Text overlay failed: {e}")
         text_path = concat_path  # fall back to no-text version
