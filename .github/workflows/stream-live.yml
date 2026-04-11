@@ -12,19 +12,21 @@ jobs:
     timeout-minutes: 360  # 6 hours max
 
     steps:
-      - name: Install ffmpeg
+      - name: Install ffmpeg + python deps
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
+          pip install -q google-auth google-auth-oauthlib google-api-python-client
 
-      - name: Download livestream video from GitHub Release
+      - name: Download livestream video + metadata from GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RELEASE_URL="https://api.github.com/repos/${{ github.repository }}/releases/tags/audio-tracks"
-          ASSET_URL=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "$RELEASE_URL" | \
+          RELEASE_JSON=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" "$RELEASE_URL")
+
+          ASSET_URL=$(echo "$RELEASE_JSON" | \
             python3 -c "import sys,json; assets=json.load(sys.stdin).get('assets',[]); \
               match=[a['browser_download_url'] for a in assets if a['name']=='livestream.mp4']; \
               print(match[0] if match else '')")
@@ -32,9 +34,106 @@ jobs:
             echo "ERROR: livestream.mp4 not found in release. Run build-livestream first."
             exit 1
           fi
-          echo "Downloading from: $ASSET_URL"
+          echo "Downloading video from: $ASSET_URL"
           curl -L -o /tmp/livestream.mp4 "$ASSET_URL"
           ls -lh /tmp/livestream.mp4
+
+          # Download metadata (non-fatal — stream can run without it)
+          META_URL=$(echo "$RELEASE_JSON" | \
+            python3 -c "import sys,json; assets=json.load(sys.stdin).get('assets',[]); \
+              match=[a['browser_download_url'] for a in assets if a['name']=='livestream_meta.json']; \
+              print(match[0] if match else '')")
+          if [ -n "$META_URL" ]; then
+            curl -sL -o /tmp/livestream_meta.json "$META_URL"
+            echo "Downloaded metadata:"
+            cat /tmp/livestream_meta.json | python3 -c "import sys,json; d=json.load(sys.stdin); print('TITLE:', d.get('title','')); print('DESC:', d.get('description','')[:120])"
+          else
+            echo "No livestream_meta.json found — stream will use existing YouTube title"
+          fi
+
+      - name: Update YouTube live broadcast title + description
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, json, sys
+
+          meta_path = "/tmp/livestream_meta.json"
+          if not os.path.exists(meta_path):
+              print("No metadata file — skipping title update")
+              sys.exit(0)
+
+          with open(meta_path) as f:
+              meta = json.load(f)
+
+          title = meta.get("title", "").strip()
+          description = meta.get("description", "").strip()
+          if not title:
+              print("Empty title in metadata — skipping update")
+              sys.exit(0)
+
+          client_id     = os.getenv("YOUTUBE_CLIENT_ID")
+          client_secret = os.getenv("YOUTUBE_CLIENT_SECRET")
+          refresh_token = os.getenv("YOUTUBE_REFRESH_TOKEN")
+          if not all([client_id, client_secret, refresh_token]):
+              print("Missing YouTube OAuth credentials — skipping title update")
+              sys.exit(0)
+
+          try:
+              from google.oauth2.credentials import Credentials
+              from google.auth.transport.requests import Request
+              from googleapiclient.discovery import build
+
+              creds = Credentials(
+                  token=None,
+                  refresh_token=refresh_token,
+                  token_uri="https://oauth2.googleapis.com/token",
+                  client_id=client_id,
+                  client_secret=client_secret,
+              )
+              creds.refresh(Request())
+              yt = build("youtube", "v3", credentials=creds)
+
+              # Find the active/upcoming live broadcast
+              resp = yt.liveBroadcasts().list(
+                  part="id,snippet,status",
+                  broadcastStatus="active",
+                  maxResults=5,
+              ).execute()
+              broadcasts = resp.get("items", [])
+
+              # Also check upcoming if none active
+              if not broadcasts:
+                  resp2 = yt.liveBroadcasts().list(
+                      part="id,snippet,status",
+                      broadcastStatus="upcoming",
+                      maxResults=5,
+                  ).execute()
+                  broadcasts = resp2.get("items", [])
+
+              if not broadcasts:
+                  print("No active/upcoming broadcasts found — skipping title update")
+                  sys.exit(0)
+
+              # Update the first (most recent) broadcast
+              broadcast = broadcasts[0]
+              bid = broadcast["id"]
+              snippet = broadcast["snippet"]
+              snippet["title"] = title[:100]
+              snippet["description"] = description[:5000]
+
+              yt.liveBroadcasts().update(
+                  part="snippet",
+                  body={"id": bid, "snippet": snippet},
+              ).execute()
+              print(f"✅ Updated broadcast '{bid}' title: {title[:80]}")
+
+          except Exception as e:
+              print(f"⚠️ Title update failed (non-fatal): {e}")
+              # Don't exit 1 — stream should still run even if title update fails
+          PYEOF
 
       - name: Stream to YouTube
         env:

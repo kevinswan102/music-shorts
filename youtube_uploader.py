@@ -175,17 +175,17 @@ class YouTubeUploader:
 
             metadata = self._generate_metadata(video_data)
             thumbnail_path = video_data.get('thumbnail')
-            return self._upload_to_youtube(video_path, metadata, thumbnail_path)
+            publish_at = video_data.get('publish_at')
+            return self._upload_to_youtube(video_path, metadata, thumbnail_path, publish_at)
 
         except Exception as e:
             logger.error(f"Video upload failed: {e}")
             return {'success': False, 'error': str(e)}
 
-    def _upload_to_youtube(self, video_path: str, metadata: Dict, thumbnail_path: Optional[str] = None) -> Dict:
+    def _upload_to_youtube(self, video_path: str, metadata: Dict, thumbnail_path: Optional[str] = None, publish_at: Optional[str] = None) -> Dict:
         try:
             logger.info(f"Starting upload: {video_path} ({os.path.getsize(video_path) / (1024*1024):.1f} MB)")
 
-            publish_at = video_data.get('publish_at')  # ISO 8601 UTC, e.g. "2026-04-01T14:00:00Z"
             status_block = {
                 'privacyStatus': 'private' if publish_at else self.privacy_status,
                 'selfDeclaredMadeForKids': False,
