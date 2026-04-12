@@ -497,10 +497,15 @@ def main():
         if ok:
             successes += 1
 
-    # Step 7: Update archive
+    # Step 7: Update archive — only if at least one short uploaded successfully.
+    # Previously this archived the track even on upload failure, burning through
+    # the track list while posting nothing to YouTube.
     logger.info("Step 7: Updating archive...")
-    save_to_archive(track["id"])
-    logger.info(f"Archived: {track['id']}")
+    if successes > 0:
+        save_to_archive(track["id"])
+        logger.info(f"Archived: {track['id']} ({successes}/{len(windows)} shorts uploaded)")
+    else:
+        logger.warning(f"NOT archiving {track['id']} — 0/{len(windows)} shorts uploaded. Will retry next run.")
 
     # Final cleanup
     try:
