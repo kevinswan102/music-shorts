@@ -186,18 +186,69 @@ def generate_multiple_overlay_texts(n: int) -> list:
 def _reddit_top_facts(subreddit: str, strip_prefix: str = "") -> list:
     """
     Shared helper: fetch top posts from a subreddit, return one as split lines.
-    strip_prefix: e.g. "TIL " to remove from the start of post titles.
+    Tries JSON API first (browser UA), then RSS feed as fallback — both are
+    public endpoints that don't need auth.
+    strip_prefix: e.g. "LPT: " to remove from the start of post titles.
     """
     import requests, random
-    resp = requests.get(
-        f"https://www.reddit.com/r/{subreddit}/top.json?t=week&limit=50",
-        headers={"User-Agent": "music-shorts-bot/1.0"},
-        timeout=8,
-    )
-    if resp.status_code != 200:
+
+    # Reddit blocks generic bot UAs. Use a browser-like UA to get through.
+    _HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/html, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    posts = []
+
+    # ── Try 1: JSON API ───────────────────────────────────────────────────────
+    try:
+        resp = requests.get(
+            f"https://www.reddit.com/r/{subreddit}/top.json?t=week&limit=50",
+            headers=_HEADERS,
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            try:
+                posts = resp.json().get("data", {}).get("children", [])
+            except Exception:
+                posts = []
+        else:
+            logger.debug(f"Reddit JSON {subreddit}: HTTP {resp.status_code}, trying RSS")
+    except Exception as e:
+        logger.debug(f"Reddit JSON {subreddit} request failed: {e}, trying RSS")
+
+    # ── Try 2: RSS feed (much less restricted than JSON API) ──────────────────
+    if not posts:
+        try:
+            import xml.etree.ElementTree as ET
+            rss_resp = requests.get(
+                f"https://www.reddit.com/r/{subreddit}/top/.rss?t=week&limit=50",
+                headers={**_HEADERS, "Accept": "application/rss+xml, application/xml, */*"},
+                timeout=10,
+            )
+            if rss_resp.status_code == 200:
+                root = ET.fromstring(rss_resp.text)
+                ns = {"atom": "http://www.w3.org/2005/Atom"}
+                titles = []
+                for entry in root.findall(".//atom:entry", ns):
+                    title_el = entry.find("atom:title", ns)
+                    if title_el is not None and title_el.text:
+                        titles.append(title_el.text.strip())
+                if titles:
+                    # Convert to fake "post children" format so rest of code works
+                    posts = [{"data": {"title": t, "over_18": False}} for t in titles]
+                    logger.debug(f"Reddit RSS {subreddit}: got {len(posts)} posts")
+        except Exception as e:
+            logger.debug(f"Reddit RSS {subreddit} failed: {e}")
+
+    if not posts:
         return []
 
-    posts = resp.json().get("data", {}).get("children", [])
     candidates = []
     for post in posts:
         d = post.get("data", {})

@@ -269,19 +269,49 @@ def concat_segments(segment_paths: List[str], output_path: str) -> str:
 
 
 def _find_font() -> str:
-    """Return the best available font path for ffmpeg drawtext."""
+    """Return the best available Impact-style condensed bold font path for ffmpeg drawtext."""
     candidates = [
+        # Impact (installed via apt install fonts-urw-base35 or ttf-mscorefonts-installer)
+        "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf",
+        "/usr/share/fonts/truetype/impact.ttf",
+        "/usr/share/fonts/Impact.ttf",
+        # Nimbus Sans Narrow Bold — Impact-adjacent, ships with fonts-urw-base35
+        "/usr/share/fonts/truetype/urw-base35/NimbusSansNarrow-Bold.ttf",
+        "/usr/share/fonts/type1/urw-base35/NimbusSansNarrow-Bold.ttf",
+        # Narrow condensed fallbacks
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",  # macOS fallback
+        "/System/Library/Fonts/Supplemental/Impact.ttf",  # macOS
+        "/System/Library/Fonts/Helvetica.ttc",            # macOS fallback
     ]
     for path in candidates:
         if os.path.exists(path):
             return path
     return ""  # let ffmpeg use its built-in (last resort)
+
+
+def _wrap_overlay_text(text: str, max_chars: int = 28) -> list:
+    """
+    Word-wrap a line of overlay text so no single line overflows the video frame.
+    Returns a list of wrapped lines (usually 1–3).
+    """
+    words = text.split()
+    lines = []
+    current = []
+    current_len = 0
+    for word in words:
+        needed = len(word) + (1 if current else 0)
+        if current and current_len + needed > max_chars:
+            lines.append(" ".join(current))
+            current = [word]
+            current_len = len(word)
+        else:
+            current.append(word)
+            current_len += needed
+    if current:
+        lines.append(" ".join(current))
+    return lines or [text]
 
 
 def add_text_overlay(video_path: str, track_name: str, artist: str,
@@ -351,11 +381,10 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     else:
         bar_dur = 4.0
 
-    poem_y_start = 520  # vertical center of screen
-    line_spacing = 80
+    poem_y_start = 480  # vertical center of screen
+    line_spacing = 90   # spacing between wrapped sub-lines
 
     for set_idx, lines in enumerate(all_sets):
-        n = len(lines)
         # Time window this set is visible
         slot_start = set_idx * CYCLE_SECS
         slot_end = min(slot_start + CYCLE_SECS, total_duration - bar_dur)
@@ -363,8 +392,14 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
         if slot_start >= total_duration - 2.0:
             break  # past end of video
 
-        for i, line in enumerate(lines):
-            safe_line = _escape(line)
+        # Expand each source line into word-wrapped sub-lines
+        wrapped_lines = []
+        for line in lines:
+            wrapped_lines.extend(_wrap_overlay_text(line, max_chars=26))
+
+        n = len(wrapped_lines)
+        for i, sub_line in enumerate(wrapped_lines):
+            safe_line = _escape(sub_line)
             # Lines appear staggered within the slot, one per bar
             appear_at = slot_start + (1 + i) * bar_dur
             if appear_at > slot_end - 1.0:
@@ -372,11 +407,11 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
             appear_at = max(slot_start + 0.5, appear_at)
             disappear_at = slot_end
             y_pos = poem_y_start + i * line_spacing
+            # Impact/condensed style: white text, thick black stroke — no transparent box
             filters.append(
                 f"drawtext={font_param}text='{safe_line}':"
-                f"fontsize=62:fontcolor=white:"
-                f"borderw=5:bordercolor=black@0.8:"
-                f"box=1:boxcolor=black@0.30:boxborderw=14:"
+                f"fontsize=72:fontcolor=white:"
+                f"borderw=7:bordercolor=black:"
                 f"x=(w-text_w)/2:y={y_pos}:"
                 f"enable='between(t\\,{appear_at:.2f}\\,{disappear_at:.2f})'"
             )
@@ -384,28 +419,26 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     # Song title — visible from start, bottom of screen
     filters.append(
         f"drawtext={font_param}text='{safe_track}':"
-        f"fontsize=60:fontcolor=white@0.95:"
-        f"borderw=3:bordercolor=black@0.7:"
-        f"box=1:boxcolor=black@0.40:boxborderw=12:"
-        f"x=(w-text_w)/2:y=h-240"
+        f"fontsize=66:fontcolor=white:"
+        f"borderw=6:bordercolor=black:"
+        f"x=(w-text_w)/2:y=h-250"
     )
 
     # Artist name — fades in at ~30% through
     filters.append(
         f"drawtext={font_param}text='{safe_artist}':"
-        f"fontsize=44:fontcolor=white:"
-        f"borderw=2:bordercolor=black@0.5:"
-        f"x=(w-text_w)/2:y=h-168:"
+        f"fontsize=48:fontcolor=white:"
+        f"borderw=4:bordercolor=black:"
+        f"x=(w-text_w)/2:y=h-178:"
         f"enable='gte(t\\,{artist_in:.1f})':"
-        f"alpha='if(gte(t\\,{artist_fade_end:.1f})\\,0.65\\,(t-{artist_in:.1f})/{artist_fade_end - artist_in:.1f}*0.65)'"
+        f"alpha='if(gte(t\\,{artist_fade_end:.1f})\\,0.75\\,(t-{artist_in:.1f})/{artist_fade_end - artist_in:.1f}*0.75)'"
     )
 
     # CTA — appears last 4 seconds, centered
     filters.append(
         f"drawtext={font_param}text='Stream now - link in bio':"
-        f"fontsize=54:fontcolor=white@0.9:"
-        f"borderw=3:bordercolor=black@0.7:"
-        f"box=1:boxcolor=black@0.45:boxborderw=14:"
+        f"fontsize=60:fontcolor=white:"
+        f"borderw=6:bordercolor=black:"
         f"x=(w-text_w)/2:y=h/2-30:"
         f"enable='gte(t\\,{cta_start:.1f})'"
     )
