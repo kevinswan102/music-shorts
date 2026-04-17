@@ -253,13 +253,14 @@ class YouTubeUploader:
             return {'success': False, 'error': str(e)}
 
     def _post_early_comment(self, video_id: str) -> None:
-        """Post a pinned comment with music links — non-fatal."""
-        artist = os.getenv('ARTIST_NAME', 'Unknown Artist')
+        """Post a pinned comment with music links — non-fatal.
+        Requires youtube.force-ssl scope. If the refresh token was generated
+        without it, re-run: python3 youtube_auth_now.py
+        """
         beatstars = os.getenv('BEATSTARS_URL', '')
         instagram = os.getenv('INSTAGRAM_HANDLE', '')
         hyperfollow = os.getenv('HYPERFOLLOW_URL', '')
         spotify = os.getenv('SPOTIFY_URL', '')
-        apple_music = os.getenv('APPLE_MUSIC_URL', '')
         freecash = os.getenv('FREECASH_URL', '')
 
         lines = []
@@ -274,9 +275,16 @@ class YouTubeUploader:
         if freecash:
             lines.append(f"earn free cash: {freecash}")
 
+        if not lines:
+            return
+
         text = "\n".join(lines)
         try:
-            self.youtube_service.commentThreads().insert(
+            # Small delay — YouTube needs a moment after upload before comments work
+            import time
+            time.sleep(5)
+
+            resp = self.youtube_service.commentThreads().insert(
                 part="snippet",
                 body={
                     "snippet": {
@@ -285,7 +293,16 @@ class YouTubeUploader:
                     }
                 },
             ).execute()
-            logger.info("Comment posted successfully")
+            comment_id = resp.get('id', '')
+            logger.info(f"Comment posted successfully ({comment_id})")
+        except HttpError as e:
+            if e.resp.status == 403:
+                logger.warning(
+                    f"Comment 403 — refresh token likely missing youtube.force-ssl scope. "
+                    f"Re-run: python3 youtube_auth_now.py and update YOUTUBE_REFRESH_TOKEN secret."
+                )
+            else:
+                logger.warning(f"Comment failed (non-fatal): {e}")
         except Exception as e:
             logger.warning(f"Comment failed (non-fatal): {e}")
 

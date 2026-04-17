@@ -134,7 +134,7 @@ def main():
         "token_uri":      "https://oauth2.googleapis.com/token",
         "client_id":      client_id,
         "client_secret":  client_secret,
-        "scopes":         [SCOPES],
+        "scopes":         SCOPES.split(),
     }
     with open("youtube_credentials.json", "w") as f:
         json.dump(uploader_creds, f, indent=2)
