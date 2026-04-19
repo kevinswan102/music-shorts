@@ -1,69 +1,24 @@
-  Automated YouTube Shorts pipeline for music promotion. Generates visualizer-style short-form videos
-   from audio tracks and uploads them on a daily schedule.
-                                                                                                     
-  What it does                                                                                       
-                                                                                                     
-  1. Sources audio from a configured channel/library                                                 
-  2. Analyzes beats — BPM detection, beat mapping for visual sync                                  
-  3. Fetches footage — pulls cinematic clips from Pexels API, matched to track mood via LLM          
-  4. Renders video — beat-synced cuts, waveform overlays, artist branding                            
-  5. Uploads to YouTube — scheduled publishing, auto-comments with streaming/beat store links        
-  6. Livestream mode — stitches tracks into a looping livestream video, streams via ffmpeg to YouTube
-   RTMP                                                                                              
-                                                                                                     
-  Architecture                                                                                       
-                                                                                                   
-  generate_short.py          → orchestrator (daily cron via GitHub Actions)
-  ├── music_source.py        → audio sourcing + archive tracking                                     
-  ├── beat_analyzer.py       → BPM / beat detection (librosa)                                        
-  ├── footage_fetcher.py     → Pexels API footage selection                                          
-  ├── llm_client.py          → Groq (Llama 3.3) for descriptions + mood matching                     
-  ├── video_renderer.py      → moviepy composition, beat-synced editing                              
-  └── youtube_uploader.py    → OAuth upload, scheduled publishing, pinned comments                   
-                                                                                                     
-  generate_livestream_video.py → builds long-form looping video for 24/7 streams                     
-                                                                                                     
-  Deployment                                                                                         
-                                                                                                   
-  Runs entirely on GitHub Actions — no server required.                                              
-   
-  ┌──────────────────────┬────────────────────┬────────────────────────────────┐                     
-  │       Workflow       │      Schedule      │            Purpose             │                   
-  ├──────────────────────┼────────────────────┼────────────────────────────────┤                     
-  │ generate-short.yml   │ Daily midnight UTC │ Generate + upload 4 Shorts     │
-  ├──────────────────────┼────────────────────┼────────────────────────────────┤                     
-  │ build-livestream.yml │ Manual             │ Build looping livestream video │                     
-  ├──────────────────────┼────────────────────┼────────────────────────────────┤
-  │ stream-live.yml      │ Every 6 hours      │ Stream to YouTube RTMP         │                     
-  └──────────────────────┴────────────────────┴────────────────────────────────┘                     
-   
-  Setup                                                                                              
-                                                                                                   
-  pip install -r requirements.txt
+# music-shorts
 
-  Required secrets (GitHub Actions → Settings → Secrets):                                            
-  - YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET / YOUTUBE_REFRESH_TOKEN — OAuth credentials
-  - PEXELS_API_KEY — stock footage                                                                   
-  - GROQ_API_KEY — LLM for descriptions                                                            
-  - SOURCE_CHANNEL_URL — audio source                                                                
-  - YOUTUBE_STREAM_KEY — for livestream mode                                                       
-                                                                                                     
-  Optional secrets for video metadata:                                                             
-  - ARTIST_NAME, BEATSTARS_URL, SPOTIFY_URL, APPLE_MUSIC_URL, HYPERFOLLOW_URL, INSTAGRAM_HANDLE      
-                                                                                                     
-  YouTube OAuth                                                                                      
-                                                                                                     
-  python3 youtube_auth_now.py                                                                      
-                                                                                                     
-  Starts a local server, opens browser for Google OAuth consent, and prints the refresh token to     
-  paste into GitHub Actions secrets.                                                                 
-                                                                                                     
-  Tech Stack                                                                                       
+End-to-end content automation pipeline that generates, renders, and publishes short-form music videos on a daily schedule — fully autonomous, zero manual intervention.
 
-  - Python 3.11 — core pipeline
-  - moviepy + ffmpeg — video rendering
-  - librosa — audio/beat analysis                                                                    
-  - Groq API (Llama 3.3 70B) — LLM for descriptions and mood-based footage selection
-  - YouTube Data API v3 — upload, scheduling, comments, livestream management                        
-  - Pexels API — royalty-free footage                                                                
-  - GitHub Actions — CI/CD and cron scheduling     
+## System Design
+
+- **Audio analysis** — BPM detection and beat mapping (librosa) to drive visual sync
+- **Content sourcing** — programmatic footage selection via Pexels API, mood-matched using LLM inference (Groq/Llama 3.3)
+- **Video rendering** — beat-synced clip editing, text overlays, and branding composited with moviepy + ffmpeg
+- **Publishing** — YouTube Data API v3 OAuth flow: batched scheduled uploads, metadata generation, automated engagement
+- **Livestream** — separate pipeline that builds a looping video and streams 24/7 via ffmpeg RTMP
+- **Scheduling** — GitHub Actions cron, no infrastructure cost
+
+## Technical Highlights
+
+- Fully serverless — runs on GitHub Actions free tier
+- Handles OAuth token refresh, retry logic, and graceful degradation
+- Reddit API integration for dynamic text overlay content (rotates across multiple sources)
+- Processes 4 videos/day end-to-end in under 30 minutes
+- Archive tracking prevents duplicate content
+
+## Stack
+
+Python 3.11 · moviepy · ffmpeg · librosa · YouTube Data API v3 · Groq API · Pexels API · GitHub Actions

@@ -261,7 +261,7 @@ class YouTubeUploader:
         instagram = os.getenv('INSTAGRAM_HANDLE', '')
         hyperfollow = os.getenv('HYPERFOLLOW_URL', '')
         spotify = os.getenv('SPOTIFY_URL', '')
-        freecash = os.getenv('FREECASH_URL', '')
+        partner_link = os.getenv('PARTNER_LINK_1', '')
 
         lines = []
         if hyperfollow:
@@ -272,8 +272,8 @@ class YouTubeUploader:
             lines.append(f"want this beat? {beatstars}")
         if instagram:
             lines.append(f"ig: {instagram}")
-        if freecash:
-            lines.append(f"earn free cash: {freecash}")
+        if partner_link:
+            lines.append(partner_link)
 
         if not lines:
             return
@@ -319,7 +319,7 @@ class YouTubeUploader:
         hyperfollow = os.getenv('HYPERFOLLOW_URL', '')
         spotify = os.getenv('SPOTIFY_URL', '')
         apple_music = os.getenv('APPLE_MUSIC_URL', '')
-        freecash = os.getenv('FREECASH_URL', '')
+        partner_link = os.getenv('PARTNER_LINK_1', '')
 
         title = f"{track_name} | {artist} #shorts #music"
         title = title[:100]
@@ -348,8 +348,8 @@ class YouTubeUploader:
         if instagram:
             desc_parts.append(f"ig / tiktok: {instagram}")
 
-        if freecash:
-            desc_parts.append(f"Earn free cash: {freecash}")
+        if partner_link:
+            desc_parts.append(partner_link)
 
         desc_parts.append("#music #shorts #beats")
 

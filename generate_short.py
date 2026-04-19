@@ -141,7 +141,7 @@ def generate_overlay_text() -> list:
         _showerthoughts,      # r/Showerthoughts — thought-provoking one-liners, perfect vibe
         _til_reddit,          # r/todayilearned — surprising facts
         _mildly_interesting,  # r/mildlyinteresting — curious observations
-        _interesting_asfuck,  # r/interestingasfuck — wild facts
+        _interesting_facts,  # r/Damnthatsinteresting — wild facts
         _life_pro_tips,       # r/LifeProTips — useful insight that sparks engagement
         _useless_fact_api,    # uselessfacts.jsph.pl — free API fallback
         _numbers_fact_api,    # numbersapi.com — trivia fallback
@@ -295,9 +295,9 @@ def _showerthoughts() -> list:
     return _reddit_top_facts("Showerthoughts")
 
 
-def _interesting_asfuck() -> list:
-    """r/interestingasfuck top of week — wild, mind-blowing facts."""
-    return _reddit_top_facts("interestingasfuck")
+def _interesting_facts() -> list:
+    """r/Damnthatsinteresting top of week — wild, mind-blowing facts."""
+    return _reddit_top_facts("Damnthatsinteresting")
 
 
 def _life_pro_tips() -> list:

@@ -361,16 +361,16 @@ def main():
     logger.info("Generating stream title and description...")
     stream_meta = generate_stream_meta(rendered_titles)
 
-    # Append affiliate links + music links to description
+    # Append partner links + music links to description
     spotify_url   = os.getenv("SPOTIFY_URL", "").strip()
     apple_url     = os.getenv("APPLE_MUSIC_URL", "").strip()
     beatstars_url = os.getenv("BEATSTARS_URL", "").strip()
     hyperfollow   = os.getenv("HYPERFOLLOW_URL", "").strip()
-    freecash_url  = os.getenv("FREECASH_URL", "").strip()
-    coinbase_url  = os.getenv("AFFILIATE_COINBASE", "").strip()
-    cryptocom_url = os.getenv("AFFILIATE_CRYPTOCOM", "https://crypto.com/app/3d2tscf727").strip()
-    kalshi_url    = os.getenv("AFFILIATE_KALSHI", "").strip()
-    paypal_url    = os.getenv("AFFILIATE_PAYPAL", "").strip()
+    partner_1     = os.getenv("PARTNER_LINK_1", "").strip()
+    partner_2     = os.getenv("PARTNER_LINK_2", "").strip()
+    partner_3     = os.getenv("PARTNER_LINK_3", "").strip()
+    partner_4     = os.getenv("PARTNER_LINK_4", "").strip()
+    partner_5     = os.getenv("PARTNER_LINK_5", "").strip()
 
     extra_lines = ["\n━━━━━━━━━━━━━━━━━━━━━━━"]
 
@@ -393,19 +393,13 @@ def main():
         stream_meta.get("track_list", ""),
     ]
 
-    # Affiliate links
-    aff_lines = []
-    if coinbase_url:
-        aff_lines.append(f"💰 Coinbase — $10 free Bitcoin on signup: {coinbase_url}")
-    aff_lines.append(f"🪙 Crypto.com — up to $100 welcome bonus: {cryptocom_url}")
-    if kalshi_url:
-        aff_lines.append(f"🎯 Kalshi — up to $25 trade bonus: {kalshi_url}")
-    if freecash_url:
-        aff_lines.append(f"🎁 Freecash — $10 free on signup: {freecash_url}")
-    if paypal_url:
-        aff_lines.append(f"💸 PayPal — spend $5 get $10 back (new users): {paypal_url}")
-    if aff_lines:
-        extra_lines += ["\n📌 Support the channel (free to sign up):"] + aff_lines
+    # Partner links
+    partner_lines = []
+    for url in [partner_1, partner_2, partner_3, partner_4, partner_5]:
+        if url:
+            partner_lines.append(f"📌 {url}")
+    if partner_lines:
+        extra_lines += ["\n📌 Support the channel:"] + partner_lines
     stream_meta["description"] = stream_meta.get("description", "") + "\n" + "\n".join(extra_lines)
 
     logger.info("=" * 60)

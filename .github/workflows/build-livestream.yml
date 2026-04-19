@@ -48,10 +48,10 @@ jobs:
           APPLE_MUSIC_URL: ${{ secrets.APPLE_MUSIC_URL }}
           BEATSTARS_URL: ${{ secrets.BEATSTARS_URL }}
           HYPERFOLLOW_URL: ${{ secrets.HYPERFOLLOW_URL }}
-          # Affiliate links
-          AFFILIATE_COINBASE: ${{ secrets.AFFILIATE_COINBASE }}
-          AFFILIATE_CRYPTOCOM: ${{ secrets.AFFILIATE_CRYPTOCOM }}
-          AFFILIATE_KALSHI: ${{ secrets.AFFILIATE_KALSHI }}
-          AFFILIATE_PAYPAL: ${{ secrets.AFFILIATE_PAYPAL }}
-          FREECASH_URL: ${{ secrets.FREECASH_URL }}
+          # Partner links
+          PARTNER_LINK_1: ${{ secrets.PARTNER_LINK_1 }}
+          PARTNER_LINK_2: ${{ secrets.PARTNER_LINK_2 }}
+          PARTNER_LINK_3: ${{ secrets.PARTNER_LINK_3 }}
+          PARTNER_LINK_4: ${{ secrets.PARTNER_LINK_4 }}
+          PARTNER_LINK_5: ${{ secrets.PARTNER_LINK_5 }}
         run: python generate_livestream_video.py
