@@ -477,7 +477,7 @@ def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
     style = SOURCE_STYLE.get(genre, "pexels")
     logger.info(f"Genre: {genre} | Style: {style}")
 
-    # Use ONE source for visual cohesion — all vintage OR all modern
+    # Use ONE source for visual cohesion— all vintage OR all modern
     if style == "archive":
         total = _fetch_archive(genre, num_clips, output_dir)
         # Fall back to pexels if archive doesn't deliver enough
