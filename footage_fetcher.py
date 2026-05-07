@@ -15,7 +15,7 @@ from urllib.parse import quote_plus
 logger = logging.getLogger(__name__)
 
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
-PEXELS_BASE_URL = "https://api.pexels.com/videos"
+PEXELS_BASE_URL = "https://api.pexels.com/v1/videos"
 ARCHIVE_SEARCH_URL = "https://archive.org/advancedsearch.php"
 ARCHIVE_HEADERS = {"User-Agent": "MusicShortsBot/1.0 (Python; automated-shorts)"}
 
