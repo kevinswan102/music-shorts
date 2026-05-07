@@ -269,21 +269,23 @@ def concat_segments(segment_paths: List[str], output_path: str) -> str:
 
 
 def _find_font() -> str:
-    """Return the best available Impact-style condensed bold font path for ffmpeg drawtext."""
+    """Return a clean bold sans font path for ffmpeg drawtext."""
     candidates = [
-        # Impact (installed via apt install fonts-urw-base35 or ttf-mscorefonts-installer)
+        # GitHub Actions / Ubuntu.
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        # macOS local rendering.
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/Library/Fonts/Arial Bold.ttf",
+        "/System/Library/Fonts/Supplemental/Helvetica Bold.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        # Last resort if only old meme/edit fonts are installed.
         "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf",
         "/usr/share/fonts/truetype/impact.ttf",
-        "/usr/share/fonts/Impact.ttf",
-        # Nimbus Sans Narrow Bold — Impact-adjacent, ships with fonts-urw-base35
-        "/usr/share/fonts/truetype/urw-base35/NimbusSansNarrow-Bold.ttf",
-        "/usr/share/fonts/type1/urw-base35/NimbusSansNarrow-Bold.ttf",
-        # Narrow condensed fallbacks
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        "/System/Library/Fonts/Supplemental/Impact.ttf",  # macOS
-        "/System/Library/Fonts/Helvetica.ttc",            # macOS fallback
+        "/System/Library/Fonts/Supplemental/Impact.ttf",
     ]
     for path in candidates:
         if os.path.exists(path):
@@ -314,17 +316,26 @@ def _wrap_overlay_text(text: str, max_chars: int = 28) -> list:
     return lines or [text]
 
 
+def _fit_font_size(text: str, base_size: int, min_size: int,
+                   max_chars: int) -> int:
+    """Crude drawtext fit guard for long titles in a 1080px Shorts frame."""
+    clean_len = max(1, len(text.strip()))
+    if clean_len <= max_chars:
+        return base_size
+    return max(min_size, int(base_size * max_chars / clean_len))
+
+
 def add_text_overlay(video_path: str, track_name: str, artist: str,
                       output_path: str, total_duration: float = 30.0,
                       poem_lines: list = None, bpm: float = 0,
                       poem_sets: list = None) -> str:
     """
     Burn text overlays onto the video using ffmpeg drawtext.
-    - Subscribe badge: top-left corner, always visible
-    - Fact/quote text: cycles every ~35s for long videos (poem_sets), or one-shot (poem_lines)
+    - Song label: top-left corner, always visible
+    - Overlay text: appears inside the first second for Shorts
     - Song title: visible from start, bottom
     - Artist name: fades in later, bottom
-    - CTA: last 4 seconds, centered
+    - CTA: mid-video and final reminder
 
     poem_sets: list of poem_lines lists — used for long-form content (livestream).
                Each set is shown for CYCLE_SECS seconds, one after another.
@@ -343,26 +354,40 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
 
     safe_track = _escape(track_name)
     safe_artist = _escape(artist)
-    cta_start = max(0, total_duration - 4.0)
+    cta_start = max(0, total_duration - 4.5)
+    if total_duration < 14.0:
+        hook_end = max(2.8, total_duration - 5.0)
+    else:
+        hook_end = min(max(5.8, total_duration * 0.34),
+                       max(5.8, total_duration - 8.0))
+    if total_duration >= 14.0:
+        natural_cta_start = min(max(6.0, total_duration * 0.28), total_duration - 9.0)
+        early_cta_start = max(hook_end + 0.6, natural_cta_start)
+        early_cta_end = min(total_duration - 5.0, early_cta_start + 3.3)
+    else:
+        early_cta_start = 0.0
+        early_cta_end = 0.0
+    cta_text = "Stream link in bio"
+    safe_cta = _escape(cta_text)
 
     # Artist fade: invisible until artist_in, then fades in over 1.5s
-    artist_in = min(6.0, total_duration * 0.3)
+    artist_in = min(4.0, total_duration * 0.18)
     artist_fade_end = artist_in + 1.5
 
     filters = []
 
-    # Subscribe badge — top-left corner, discreet but always visible
+    # Song label — clear context without pretending to be a clickable button.
     filters.append(
-        f"drawtext={font_param}text='SUBSCRIBE':"
-        f"fontsize=34:fontcolor=white:"
-        f"box=1:boxcolor=0xff0000@0.80:boxborderw=14:"
-        f"x=28:y=58"
+        f"drawtext={font_param}text='SONG PREVIEW':"
+        f"fontsize=38:fontcolor=white:"
+        f"box=1:boxcolor=0x111111@0.78:boxborderw=14:"
+        f"x=32:y=76"
     )
     filters.append(
-        f"drawtext={font_param}text='▶  tap to subscribe':"
-        f"fontsize=22:fontcolor=white@0.65:"
+        f"drawtext={font_param}text='{safe_artist}':"
+        f"fontsize=26:fontcolor=white@0.82:"
         f"borderw=2:bordercolor=black@0.5:"
-        f"x=28:y=118"
+        f"x=32:y=136"
     )
 
     # Resolve which text sets to show
@@ -376,18 +401,22 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     else:
         all_sets = []
 
+    is_short_mode = bool(poem_lines) and not poem_sets
     if bpm > 0:
         bar_dur = 4 * (60.0 / bpm)
     else:
         bar_dur = 4.0
 
-    poem_y_start = 480  # vertical center of screen
+    poem_y_start = 360  # high enough to hit before the thumb scrolls
     line_spacing = 90   # spacing between wrapped sub-lines
 
     for set_idx, lines in enumerate(all_sets):
         # Time window this set is visible
         slot_start = set_idx * CYCLE_SECS
-        slot_end = min(slot_start + CYCLE_SECS, total_duration - bar_dur)
+        if is_short_mode:
+            slot_end = hook_end
+        else:
+            slot_end = min(slot_start + CYCLE_SECS, total_duration - bar_dur)
 
         if slot_start >= total_duration - 2.0:
             break  # past end of video
@@ -395,50 +424,72 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
         # Expand each source line into word-wrapped sub-lines
         wrapped_lines = []
         for line in lines:
-            wrapped_lines.extend(_wrap_overlay_text(line, max_chars=26))
+            wrapped_lines.extend(_wrap_overlay_text(line, max_chars=24))
 
         n = len(wrapped_lines)
         for i, sub_line in enumerate(wrapped_lines):
             safe_line = _escape(sub_line)
-            # Lines appear staggered within the slot, one per bar
-            appear_at = slot_start + (1 + i) * bar_dur
-            if appear_at > slot_end - 1.0:
-                appear_at = slot_end - (n - i) * 1.2
-            appear_at = max(slot_start + 0.5, appear_at)
+            # Shorts need useful text immediately; long videos can breathe by bar.
+            if is_short_mode:
+                appear_at = slot_start + 0.15 + i * 0.55
+            else:
+                appear_at = slot_start + (1 + i) * bar_dur
+                if appear_at > slot_end - 1.0:
+                    appear_at = slot_end - (n - i) * 1.2
+                appear_at = max(slot_start + 0.5, appear_at)
             disappear_at = slot_end
             y_pos = poem_y_start + i * line_spacing
-            # Impact/condensed style: white text, thick black stroke — no transparent box
+            base_size = 78 if i == 0 else 58
+            min_size = 54 if i == 0 else 44
+            font_size = _fit_font_size(sub_line, base_size=base_size,
+                                       min_size=min_size, max_chars=18 if i == 0 else 24)
+            font_color = "0xfff3a3" if i == 0 else "white"
             filters.append(
                 f"drawtext={font_param}text='{safe_line}':"
-                f"fontsize=72:fontcolor=white:"
-                f"borderw=7:bordercolor=black:"
+                f"fontsize={font_size}:fontcolor={font_color}:"
+                f"box=1:boxcolor=0x000000@0.40:boxborderw=18:"
+                f"borderw=3:bordercolor=black@0.85:"
+                f"shadowx=2:shadowy=2:shadowcolor=black@0.55:"
                 f"x=(w-text_w)/2:y={y_pos}:"
                 f"enable='between(t\\,{appear_at:.2f}\\,{disappear_at:.2f})'"
             )
 
     # Song title — visible from start, bottom of screen
+    track_font = _fit_font_size(track_name, base_size=56, min_size=38, max_chars=26)
     filters.append(
         f"drawtext={font_param}text='{safe_track}':"
-        f"fontsize=66:fontcolor=white:"
-        f"borderw=6:bordercolor=black:"
-        f"x=(w-text_w)/2:y=h-250"
+        f"fontsize={track_font}:fontcolor=white:"
+        f"borderw=4:bordercolor=black@0.85:"
+        f"shadowx=2:shadowy=2:shadowcolor=black@0.55:"
+        f"x=(w-text_w)/2:y=h-430"
     )
 
     # Artist name — fades in at ~30% through
+    artist_font = _fit_font_size(artist, base_size=40, min_size=30, max_chars=30)
     filters.append(
         f"drawtext={font_param}text='{safe_artist}':"
-        f"fontsize=48:fontcolor=white:"
-        f"borderw=4:bordercolor=black:"
-        f"x=(w-text_w)/2:y=h-178:"
+        f"fontsize={artist_font}:fontcolor=white:"
+        f"borderw=3:bordercolor=black@0.85:"
+        f"shadowx=2:shadowy=2:shadowcolor=black@0.55:"
+        f"x=(w-text_w)/2:y=h-365:"
         f"enable='gte(t\\,{artist_in:.1f})':"
         f"alpha='if(gte(t\\,{artist_fade_end:.1f})\\,0.75\\,(t-{artist_in:.1f})/{artist_fade_end - artist_in:.1f}*0.75)'"
     )
 
-    # CTA — appears last 4 seconds, centered
+    # CTA — quick mid-video conversion cue plus a final reminder.
+    if early_cta_end > early_cta_start + 0.5:
+        filters.append(
+            f"drawtext={font_param}text='{safe_cta}':"
+            f"fontsize=48:fontcolor=white:"
+            f"box=1:boxcolor=0x111111@0.64:boxborderw=16:"
+            f"x=(w-text_w)/2:y=h-640:"
+            f"enable='between(t\\,{early_cta_start:.1f}\\,{early_cta_end:.1f})'"
+        )
     filters.append(
-        f"drawtext={font_param}text='Stream now - link in bio':"
-        f"fontsize=60:fontcolor=white:"
-        f"borderw=6:bordercolor=black:"
+        f"drawtext={font_param}text='{safe_cta}':"
+        f"fontsize=56:fontcolor=white:"
+        f"borderw=4:bordercolor=black@0.9:"
+        f"shadowx=2:shadowy=2:shadowcolor=black@0.55:"
         f"x=(w-text_w)/2:y=h/2-30:"
         f"enable='gte(t\\,{cta_start:.1f})'"
     )
