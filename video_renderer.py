@@ -17,6 +17,7 @@ import logging
 from typing import List, Tuple, Optional
 
 logger = logging.getLogger(__name__)
+OVERLAY_MAX_LINES = int(os.getenv("OVERLAY_MAX_LINES", "5"))
 
 # Output dimensions (YouTube Shorts = 9:16)
 WIDTH = 1080
@@ -328,7 +329,8 @@ def _fit_font_size(text: str, base_size: int, min_size: int,
 def add_text_overlay(video_path: str, track_name: str, artist: str,
                       output_path: str, total_duration: float = 30.0,
                       poem_lines: list = None, bpm: float = 0,
-                      poem_sets: list = None) -> str:
+                      poem_sets: list = None,
+                      overlay_max_lines: int = None) -> str:
     """
     Burn text overlays onto the video using ffmpeg drawtext.
     - Song label: top-left corner, always visible
@@ -344,6 +346,7 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     """
     font = _find_font()
     font_param = f"fontfile={font}:" if font else ""
+    overlay_max_lines = overlay_max_lines or OVERLAY_MAX_LINES
 
     def _escape(text: str) -> str:
         return (text
@@ -426,6 +429,8 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
         wrapped_lines = []
         for line in lines:
             wrapped_lines.extend(_wrap_overlay_text(line, max_chars=24))
+        if is_short_mode:
+            wrapped_lines = wrapped_lines[:overlay_max_lines]
 
         n = len(wrapped_lines)
         for i, sub_line in enumerate(wrapped_lines):
@@ -548,7 +553,8 @@ def render_short(audio_segment_path: str,
                   poem_lines: list = None,
                   bpm: float = 0,
                   output_dir: str = "/tmp",
-                  poem_sets: list = None) -> Optional[str]:
+                  poem_sets: list = None,
+                  overlay_max_lines: int = None) -> Optional[str]:
     """
     Top-level render function:
     1. Cut footage to beat intervals with color grading
@@ -586,7 +592,7 @@ def render_short(audio_segment_path: str,
         total_dur = beat_intervals[-1][1] if beat_intervals else 30.0
         add_text_overlay(concat_path, track_name, artist, text_path,
                          total_duration=total_dur, poem_lines=poem_lines, bpm=bpm,
-                         poem_sets=poem_sets)
+                         poem_sets=poem_sets, overlay_max_lines=overlay_max_lines)
     except subprocess.CalledProcessError as e:
         logger.error(f"Text overlay failed: {e}")
         text_path = concat_path  # fall back to no-text version

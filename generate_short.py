@@ -129,29 +129,34 @@ _BLOCKED = {
 
 # Max chars per overlay line — longer lines = more readable on a big stream screen
 _OVERLAY_MAX_CHARS = 32
+_OVERLAY_MAX_LINES = int(os.getenv("OVERLAY_MAX_LINES", "5"))
 
 
 def generate_overlay_text(track_name: str = "", genre: str = "",
                           bpm: float = 0, energy: str = "",
                           brightness: str = "", texture: str = "",
-                          short_num: int = 1) -> list:
+                          short_num: int = 1,
+                          max_lines: int = None) -> list:
     """
     Generate varied overlay text for the video.
     Four uploads/day cannot all use the same CTA pattern, so this rotates between
     song-first hooks, Reddit/fact hooks, quick questions, low-text visual cuts,
     and occasional artist CTAs.
     """
+    max_lines = max_lines or _OVERLAY_MAX_LINES
     mode = _pick_overlay_mode(short_num=short_num)
     if mode == "visual":
         return []
     if mode == "reddit":
-        reddit_lines = _random_reddit_overlay()
+        reddit_lines = _random_reddit_overlay(max_lines=max_lines)
         if reddit_lines:
             return reddit_lines
     if mode == "question":
-        return _question_overlay(track_name=track_name, genre=genre, short_num=short_num)
+        return _question_overlay(track_name=track_name, genre=genre,
+                                 short_num=short_num, max_lines=max_lines)
     if mode == "artist":
-        return _artist_overlay(track_name=track_name, short_num=short_num)
+        return _artist_overlay(track_name=track_name, short_num=short_num,
+                               max_lines=max_lines)
 
     return _music_value_overlay(
         track_name=track_name,
@@ -161,6 +166,7 @@ def generate_overlay_text(track_name: str = "", genre: str = "",
         brightness=brightness,
         texture=texture,
         short_num=short_num,
+        max_lines=max_lines,
     )
 
 
@@ -205,7 +211,16 @@ def _pick_overlay_mode(short_num: int = 1) -> str:
     return mode if mode in {"song", "visual", "reddit", "question", "artist"} else "song"
 
 
-def _random_reddit_overlay() -> list:
+def _overlay_max_lines_for_duration(duration: float) -> int:
+    """Let longer/slower Shorts carry more text without crowding fast clips."""
+    if duration < 18.0:
+        return min(3, _OVERLAY_MAX_LINES)
+    if duration < 21.0:
+        return min(4, _OVERLAY_MAX_LINES)
+    return _OVERLAY_MAX_LINES
+
+
+def _random_reddit_overlay(max_lines: int = _OVERLAY_MAX_LINES) -> list:
     """Original Reddit/fact overlay, kept as one recurring content format."""
     sources = [
         _showerthoughts,
@@ -223,15 +238,18 @@ def _random_reddit_overlay() -> list:
         try:
             lines = source()
             if lines:
-                return lines
+                fitted = _fit_overlay_text(" ".join(lines), max_lines=max_lines)
+                if fitted:
+                    return fitted
         except Exception as e:
             logger.warning(f"Overlay source {source.__name__} failed: {e}")
 
-    return _fallback_facts()
+    return _fallback_facts(max_lines=max_lines)
 
 
 def _question_overlay(track_name: str = "", genre: str = "",
-                      short_num: int = 1) -> list:
+                      short_num: int = 1,
+                      max_lines: int = _OVERLAY_MAX_LINES) -> list:
     """Comment-bait without making every upload a direct ad."""
     import random
 
@@ -246,10 +264,11 @@ def _question_overlay(track_name: str = "", genre: str = "",
     ]
     if any(key in genre_l for key in ("ambient", "chill", "lofi")):
         prompts.append(["MOOD CHECK", "study", "sleep", "or late drive?"])
-    return _normalize_overlay_lines(random.choice(prompts))
+    return _normalize_overlay_lines(random.choice(prompts), max_lines=max_lines)
 
 
-def _artist_overlay(track_name: str = "", short_num: int = 1) -> list:
+def _artist_overlay(track_name: str = "", short_num: int = 1,
+                    max_lines: int = _OVERLAY_MAX_LINES) -> list:
     """Occasional direct Star Drift CTA."""
     import random
 
@@ -261,13 +280,14 @@ def _artist_overlay(track_name: str = "", short_num: int = 1) -> list:
     ]
     if os.getenv("BEATSTARS_URL", "").strip() and short_num % 4 == 0:
         prompts.append(["ARTISTS", "stream Star Drift", "beats also in bio", "use one for a hook"])
-    return _normalize_overlay_lines(random.choice(prompts))
+    return _normalize_overlay_lines(random.choice(prompts), max_lines=max_lines)
 
 
 def _music_value_overlay(track_name: str = "", genre: str = "",
                          bpm: float = 0, energy: str = "",
                          brightness: str = "", texture: str = "",
-                         short_num: int = 1) -> list:
+                         short_num: int = 1,
+                         max_lines: int = _OVERLAY_MAX_LINES) -> list:
     """Pick a compact, song-first text hook for Shorts."""
     import random
 
@@ -352,7 +372,7 @@ def _music_value_overlay(track_name: str = "", genre: str = "",
         ])
 
     candidates.extend(_fallback_music_tips(pool=True))
-    return _normalize_overlay_lines(random.choice(candidates))
+    return _normalize_overlay_lines(random.choice(candidates), max_lines=max_lines)
 
 
 def _fallback_music_tips(pool: bool = False):
@@ -401,11 +421,18 @@ def _fallback_music_tips(pool: bool = False):
 
 
 def _normalize_overlay_lines(lines: list, max_chars: int = _OVERLAY_MAX_CHARS,
-                             max_lines: int = 3) -> list:
+                             max_lines: int = _OVERLAY_MAX_LINES) -> list:
     wrapped = []
     for line in lines:
         wrapped.extend(_split_text(str(line), max_chars=max_chars))
     return wrapped[:max_lines]
+
+
+def _fit_overlay_text(text: str, max_chars: int = _OVERLAY_MAX_CHARS,
+                      max_lines: int = _OVERLAY_MAX_LINES) -> list:
+    """Return wrapped lines only when the complete text fits on screen."""
+    lines = _split_text(text, max_chars=max_chars, max_lines=None)
+    return lines if 0 < len(lines) <= max_lines else []
 
 
 def _reddit_top_facts(subreddit: str, strip_prefix: str = "") -> list:
@@ -491,18 +518,20 @@ def _reddit_top_facts(subreddit: str, strip_prefix: str = "") -> list:
                 title = title.split(sep)[0] + sep.strip()
                 break
         title = title.strip()
-        if len(title) < 20 or len(title) > 130:
+        if len(title) < 20 or len(title) > 115:
             continue
         words = set(title.lower().split())
         if words & _BLOCKED:
             continue
-        candidates.append(title)
+        lines = _fit_overlay_text(title)
+        if not lines:
+            continue
+        candidates.append(lines)
 
     if not candidates:
         return []
 
-    fact = random.choice(candidates[:15])
-    return _split_text(fact, max_chars=_OVERLAY_MAX_CHARS)
+    return random.choice(candidates[:15])
 
 
 def _til_reddit() -> list:
@@ -550,7 +579,7 @@ def _useless_fact_api() -> list:
         if sep in text[20:]:
             text = text.split(sep)[0] + sep.strip()
             break
-    return _split_text(text[:160], max_chars=_OVERLAY_MAX_CHARS)
+    return _fit_overlay_text(text[:120])
 
 
 def _numbers_fact_api() -> list:
@@ -568,33 +597,28 @@ def _numbers_fact_api() -> list:
     words = set(text.lower().split())
     if words & _BLOCKED:
         return []
-    return _split_text(text[:160], max_chars=_OVERLAY_MAX_CHARS)
+    return _fit_overlay_text(text[:120])
 
 
-def _fallback_facts() -> list:
+def _fallback_facts(max_lines: int = _OVERLAY_MAX_LINES) -> list:
     """Hardcoded fun facts — last resort when all APIs are down."""
     import random
     facts = [
-        "Honey never expires. 3000-year-old honey found in Egyptian tombs was still edible.",
-        "Cleopatra lived closer in time to the Moon landing than to the pyramids being built.",
-        "A day on Venus is longer than a year on Venus.",
-        "Sharks are older than trees. They've existed for over 400 million years.",
+        "Honey basically never expires.",
+        "A day on Venus is longer than its year.",
+        "Sharks are older than trees.",
         "Oxford University is older than the Aztec Empire.",
-        "The average cloud weighs about 1.1 million pounds.",
-        "Wombat poop is cube-shaped. It's the only animal that does this.",
-        "There are more possible chess games than atoms in the observable universe.",
+        "The average cloud weighs over a million pounds.",
         "Bananas are berries. Strawberries are not.",
-        "A group of flamingos is called a flamboyance.",
-        "Nintendo was founded in 1889. It started as a playing card company.",
-        "The moon is slowly drifting away from Earth — about 3.8cm per year.",
-        "Crows can recognize human faces and hold grudges.",
+        "Nintendo started as a playing card company.",
+        "The moon drifts away about 3.8cm each year.",
         "Octopuses have three hearts and blue blood.",
-        "The longest English word you can type with one hand is 'stewardesses'.",
+        "The word stewardesses can be typed with one hand.",
     ]
-    return _split_text(random.choice(facts), max_chars=_OVERLAY_MAX_CHARS)
+    return _fit_overlay_text(random.choice(facts), max_lines=max_lines)
 
 
-def _split_text(text: str, max_chars: int = 22) -> list:
+def _split_text(text: str, max_chars: int = 22, max_lines: int = 5) -> list:
     """Split text into lines of max_chars, breaking at word boundaries."""
     words = text.split()
     lines = []
@@ -615,7 +639,7 @@ def _split_text(text: str, max_chars: int = 22) -> list:
             current = word
     if current:
         lines.append(current)
-    return lines[:5]  # max 5 lines
+    return lines if max_lines is None else lines[:max_lines]
 
 
 # -- Original poem generator (disabled — kept for reference) --
@@ -641,6 +665,7 @@ def render_and_upload_short(audio_path: str, analysis: dict,
 
     # Pick the overlay before cut pacing. Text-heavy Shorts need calmer visuals;
     # low-text Shorts can let the background move more.
+    overlay_max_lines = _overlay_max_lines_for_duration(segment_duration)
     poem_lines = generate_overlay_text(
         track_name=song_title,
         genre=genre,
@@ -649,6 +674,7 @@ def render_and_upload_short(audio_path: str, analysis: dict,
         brightness=brightness,
         texture=texture,
         short_num=short_num,
+        max_lines=overlay_max_lines,
     )
     if poem_lines:
         logger.info(f"Overlay text {short_num}: {poem_lines}")
@@ -684,6 +710,7 @@ def render_and_upload_short(audio_path: str, analysis: dict,
         genre=genre,
         poem_lines=poem_lines,
         bpm=bpm,
+        overlay_max_lines=overlay_max_lines,
     )
     if not final_video:
         logger.error(f"Render failed for short {short_num}. Skipping.")
