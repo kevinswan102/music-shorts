@@ -13,7 +13,7 @@ from typing import Tuple, List
 
 logger = logging.getLogger(__name__)
 
-MAX_DURATION = 30.0   # max Short length
+MAX_DURATION = 24.0   # max Short length
 MIN_DURATION = 15.0   # min Short length
 WINDOW_HOP = 1.0      # sliding window hop (seconds)
 
@@ -45,17 +45,18 @@ def analyze_track(audio_path: str) -> dict:
     # Onset strength envelope (used to find most energetic section)
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
 
-    # Choose Short duration based on BPM — faster tracks get shorter Shorts
-    # Minimum 25s to give text overlay enough screen time
+    # Choose Short duration based on BPM. Unknown music snippets usually need
+    # to prove the hook fast; longer previews tend to drag before the viewer
+    # knows the artist.
     if bpm >= 160:
-        target_dur = 25.0
+        target_dur = 16.0
     elif bpm >= 140:
-        target_dur = 28.0
+        target_dur = 18.0
     elif bpm >= 120:
-        target_dur = 30.0
+        target_dur = 20.0
     else:
-        target_dur = 35.0
-    target_dur = min(target_dur, duration)  # can't exceed track length
+        target_dur = 22.0
+    target_dur = min(MAX_DURATION, max(MIN_DURATION, target_dur), duration)
     logger.info(f"Target Short duration: {target_dur:.0f}s (BPM: {bpm:.0f})")
 
     # Find multiple non-overlapping energetic windows

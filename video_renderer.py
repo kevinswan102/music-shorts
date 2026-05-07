@@ -355,12 +355,13 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     safe_track = _escape(track_name)
     safe_artist = _escape(artist)
     cta_start = max(0, total_duration - 4.5)
+    has_center_overlay = bool(poem_lines) and not poem_sets
     if total_duration < 14.0:
         hook_end = max(2.8, total_duration - 5.0)
     else:
         hook_end = min(max(5.8, total_duration * 0.34),
                        max(5.8, total_duration - 8.0))
-    if total_duration >= 14.0:
+    if has_center_overlay and total_duration >= 14.0:
         natural_cta_start = min(max(6.0, total_duration * 0.28), total_duration - 9.0)
         early_cta_start = max(hook_end + 0.6, natural_cta_start)
         early_cta_end = min(total_duration - 5.0, early_cta_start + 3.3)
@@ -401,7 +402,7 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     else:
         all_sets = []
 
-    is_short_mode = bool(poem_lines) and not poem_sets
+    is_short_mode = has_center_overlay
     if bpm > 0:
         bar_dur = 4 * (60.0 / bpm)
     else:

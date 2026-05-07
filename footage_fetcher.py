@@ -25,8 +25,8 @@ PEXELS_KEYWORDS = {
     "electronic": [
         "neon city night", "futuristic tunnel", "laser lights club",
         "cyberpunk city street", "led lights party", "night drive city",
-        "DJ turntable", "crowd concert", "drone city night",
-        "electric sparks", "hologram", "arcade game",
+        "DJ performing crowd", "crowd concert", "drone city night",
+        "person dancing neon lights", "hologram lights", "person arcade neon",
     ],
     "hype": [
         "skateboard trick", "parkour urban", "crowd cheering stadium",
@@ -36,27 +36,36 @@ PEXELS_KEYWORDS = {
     ],
     "chill": [
         "ocean waves beach", "sunset clouds timelapse", "rain on window",
-        "cat sleeping cozy", "goldfish aquarium", "jellyfish underwater",
-        "flower blooming timelapse", "butterfly garden", "puppy playing",
-        "waterfall forest", "snow cabin", "candle flame dark",
+        "person headphones sunset", "person looking out window rain",
+        "friends beach sunset", "person walking city night",
+        "person sitting car night", "waterfall forest", "snow cabin",
+        "candle flame dark", "city balcony night", "late night drive",
     ],
     "lofi": [
-        "rain window cozy", "coffee steam morning", "vinyl record player",
+        "rain window cozy", "coffee steam morning", "person listening vinyl",
         "train window countryside", "autumn leaves falling", "city rooftop sunset",
-        "cat on windowsill", "bookshelf cozy", "rainy street night",
-        "hand writing journal", "piano keys", "bicycle ride city",
+        "person studying headphones", "coffee shop window", "rainy street night",
+        "person writing journal", "person on train window", "person bicycle city",
+    ],
+    "rnb": [
+        "person driving at night", "person headphones city night",
+        "silhouette dancing neon", "couple city night", "person on rooftop night",
+        "person looking at skyline", "rainy car window", "slow dancing lights",
+        "red neon room portrait", "person walking neon street", "late night car ride",
+        "friends rooftop night",
     ],
     "phonk": [
         "car drift smoke", "dark urban alley", "boxing gym training",
         "motorcycle night ride", "smoke slow motion dark", "gym deadlift",
-        "bull riding rodeo", "wolf howling", "eagle flying",
-        "thunderstorm dark", "street racing", "dark tunnel",
+        "person in car at night", "driver pov night", "person walking dark street",
+        "thunderstorm dark", "street racing", "dark tunnel", "neon parking garage",
     ],
     "trap": [
-        "money cash counting", "city skyline night", "gold jewelry",
-        "luxury car driving", "helicopter aerial city", "lion roaring",
-        "smoke hookah", "crowd mosh pit", "graffiti art",
-        "chain necklace", "nightclub vip", "fireworks night",
+        "person in city at night", "city skyline night", "neon street portrait",
+        "luxury car driving", "helicopter aerial city", "person in luxury car",
+        "person in smoke lights", "crowd mosh pit", "person graffiti wall",
+        "nightclub vip", "fireworks night",
+        "person rooftop city night", "person walking neon street",
     ],
     "psychedelic": [
         "kaleidoscope colorful", "ink drop water colorful", "fractal zoom",
@@ -71,28 +80,73 @@ PEXELS_KEYWORDS = {
         "storm waves ocean", "dark road rain", "night sky dramatic",
     ],
     "rock": [
-        "concert crowd lights", "guitar close up", "drum sticks playing",
+        "concert crowd lights", "guitarist stage lights", "drummer performing",
         "stadium concert lights", "fire pyrotechnics stage", "crowd surfing",
-        "electric guitar sparks", "smoke stage lights", "headbanging crowd",
+        "band performing stage", "smoke stage lights", "headbanging crowd",
         "motorcycle highway", "desert road driving", "mountain storm",
     ],
     "ambient": [
         "underwater coral reef", "aurora borealis sky", "space earth orbit",
         "deep ocean jellyfish", "fog mountain sunrise", "crystal cave light",
         "northern lights timelapse", "bioluminescence ocean", "desert sand dunes",
-        "milky way stars", "ice glacier melting", "light rays forest",
+        "milky way stars", "person stargazing", "slow clouds moonlight",
+        "light rays forest", "person mountain sunrise", "moon over ocean",
     ],
     "orchestral": [
-        "eagle soaring mountain", "castle medieval", "storm ocean waves",
+        "person on mountain peak", "castle medieval", "storm ocean waves",
         "volcano eruption", "horse galloping field", "sword fight sparks",
         "waterfall aerial", "sunrise mountain peak", "army marching",
-        "lion walking savanna", "dragon fire", "glacier landscape",
+        "person walking ruins", "cinematic battlefield", "glacier landscape",
     ],
     "default": [
         "abstract motion colorful", "particle effects dark", "light streaks motion",
         "smoke dark background", "water surface ripple", "slow motion liquid",
-        "dog running field", "cat funny", "bird flying sky",
-        "neon bokeh lights", "ink drop water", "city timelapse night",
+        "person walking city night", "person driving at night",
+        "person headphones close up", "neon bokeh lights", "ink drop water",
+        "city timelapse night", "friends rooftop night", "concert crowd lights",
+    ],
+}
+
+PEXELS_SUBJECT_KEYWORDS = [
+    "person driving at night",
+    "pov driving city night",
+    "person walking neon street",
+    "person headphones sunset",
+    "person looking at city skyline",
+    "friends rooftop night",
+    "silhouette dancing neon",
+    "concert crowd lights",
+    "person in car rain",
+    "person walking through crowd",
+    "hands up concert",
+    "person on train window",
+]
+
+PEXELS_MOOD_SUBJECT_KEYWORDS = {
+    "chill": [
+        "person watching sunset",
+        "person headphones beach",
+        "friends car sunset",
+    ],
+    "lofi": [
+        "person studying headphones",
+        "person coffee shop window",
+        "person bedroom window rain",
+    ],
+    "rnb": [
+        "couple city night",
+        "silhouette dancing slow",
+        "person rooftop neon",
+    ],
+    "electronic": [
+        "person dancing club lights",
+        "crowd festival lights",
+        "person walking neon tunnel",
+    ],
+    "dark": [
+        "person walking empty street night",
+        "person silhouette red light",
+        "person standing in fog",
     ],
 }
 
@@ -146,10 +200,10 @@ ARCHIVE_QUERIES = {
 # Which source to use per mood — "archive" or "pexels" (never mixed)
 # Keeps visual cohesion: all vintage OR all modern stock footage
 SOURCE_STYLE = {
-    "hype":        "archive",   # cartoons, action clips
-    "phonk":       "archive",   # noir, dark vintage
-    "trap":        "archive",   # film noir, vintage
-    "orchestral":  "archive",   # epic vintage
+    "hype":        "pexels",    # modern subject/action clips
+    "phonk":       "pexels",    # modern night-drive/street clips
+    "trap":        "pexels",    # modern city/nightlife clips
+    "orchestral":  "pexels",    # cinematic modern scenes
     "electronic":  "pexels",    # modern neon/city footage
     "chill":       "pexels",    # modern nature/cozy
     "lofi":        "pexels",    # modern cozy vibes
@@ -178,7 +232,9 @@ def classify_genre(track_title: str) -> str:
         "chill": ["chill", "relax", "calm", "peaceful", "dreamy", "soft", "breeze",
                   "summer", "bright", "sunny", "love", "beautiful", "gentle", "sweet"],
         "lofi": ["lofi", "lo-fi", "lo fi", "study", "cozy", "campfire", "late night"],
-        "ambient": ["ambient", "space", "ethereal", "atmospheric", "cosmic", "nebula", "float"],
+        "rnb": ["rnb", "r&b", "soul", "smooth", "slow jam", "slowjam", "bedroom"],
+        "ambient": ["ambient", "space", "ethereal", "atmospheric", "cosmic", "nebula", "float",
+                    "star", "stars", "stargazing"],
         "orchestral": ["orchestral", "epic", "cinematic", "battle", "inbound", "war", "kingdom"],
         "electronic": ["electronic", "synth", "edm", "techno", "house", "trance",
                        "dubstep", "neon", "digital", "cyber"],
@@ -224,6 +280,7 @@ def classify_genre_llm(track_title: str, bpm: float = 0.0,
                     f"Guide:\n"
                     f"- chill: bright, summer, love, day, sun, breeze, relax, soft, peaceful\n"
                     f"- lofi: cozy, study, warm, nostalgic, rainy, coffee, late night\n"
+                    f"- rnb: smooth, soulful, romantic, slow jam, bedroom, night drive\n"
                     f"- psychedelic: trippy, experimental, weird, acid, colorful, dream\n"
                     f"- dark: ghost, haunted, cursed, demon, horror, eerie, nightmare, doom\n"
                     f"- rock: guitars, punk, grunge, alt rock, concert energy\n"
@@ -313,8 +370,15 @@ def _pexels_download(video_info: Dict, output_dir: str = "/tmp",
 
 def _fetch_pexels(genre: str, num_clips: int, output_dir: str) -> List[str]:
     """Fetch clips from Pexels for a genre."""
-    keywords = list(PEXELS_KEYWORDS.get(genre, PEXELS_KEYWORDS["default"]))
-    random.shuffle(keywords)
+    mood_keywords = list(PEXELS_KEYWORDS.get(genre, PEXELS_KEYWORDS["default"]))
+    subject_keywords = list(PEXELS_SUBJECT_KEYWORDS)
+    subject_keywords.extend(PEXELS_MOOD_SUBJECT_KEYWORDS.get(genre, []))
+    random.shuffle(mood_keywords)
+    random.shuffle(subject_keywords)
+
+    # Start with subjects/POV so the Short feels like someone is living the song.
+    subject_count = min(len(subject_keywords), max(4, num_clips))
+    keywords = subject_keywords[:subject_count] + mood_keywords
 
     downloaded = []
     used_ids = set()

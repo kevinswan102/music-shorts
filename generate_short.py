@@ -138,9 +138,12 @@ def generate_overlay_text(track_name: str = "", genre: str = "",
     """
     Generate varied overlay text for the video.
     Four uploads/day cannot all use the same CTA pattern, so this rotates between
-    song-first hooks, Reddit/fact hooks, quick questions, and occasional artist CTAs.
+    song-first hooks, Reddit/fact hooks, quick questions, low-text visual cuts,
+    and occasional artist CTAs.
     """
     mode = _pick_overlay_mode(short_num=short_num)
+    if mode == "visual":
+        return []
     if mode == "reddit":
         reddit_lines = _random_reddit_overlay()
         if reddit_lines:
@@ -164,7 +167,8 @@ def generate_overlay_text(track_name: str = "", genre: str = "",
 def generate_multiple_overlay_texts(n: int) -> list:
     """
     Generate n distinct overlay text blocks for long-form content (livestream).
-    Each block can be a song hook, question, artist CTA, or Reddit/fact hook.
+    Each block can be a song hook, question, artist CTA, Reddit/fact hook, or
+    a low-text visual cut.
     """
     import random
     texts = []
@@ -191,14 +195,14 @@ def _pick_overlay_mode(short_num: int = 1) -> str:
     if env_modes:
         modes = [m.strip().lower() for m in env_modes.split(",") if m.strip()]
     else:
-        modes = ["song", "reddit", "question", "artist"]
+        modes = ["song", "visual", "reddit", "question", "artist", "visual", "song", "reddit"]
 
     day_offset = datetime.now(timezone.utc).timetuple().tm_yday
     idx = (day_offset + max(0, short_num - 1)) % len(modes)
     mode = modes[idx]
     if mode == "random":
-        mode = random.choice(["song", "reddit", "question", "artist"])
-    return mode if mode in {"song", "reddit", "question", "artist"} else "song"
+        mode = random.choice(["song", "visual", "reddit", "question", "artist"])
+    return mode if mode in {"song", "visual", "reddit", "question", "artist"} else "song"
 
 
 def _random_reddit_overlay() -> list:
@@ -396,11 +400,12 @@ def _fallback_music_tips(pool: bool = False):
     return _normalize_overlay_lines(random.choice(tips))
 
 
-def _normalize_overlay_lines(lines: list, max_chars: int = _OVERLAY_MAX_CHARS) -> list:
+def _normalize_overlay_lines(lines: list, max_chars: int = _OVERLAY_MAX_CHARS,
+                             max_lines: int = 3) -> list:
     wrapped = []
     for line in lines:
         wrapped.extend(_split_text(str(line), max_chars=max_chars))
-    return wrapped[:5]
+    return wrapped[:max_lines]
 
 
 def _reddit_top_facts(subreddit: str, strip_prefix: str = "") -> list:
@@ -633,22 +638,9 @@ def render_and_upload_short(audio_path: str, analysis: dict,
     extract_audio_segment(audio_path, window_start, window_end, segment_path)
 
     segment_duration = window_end - window_start
-    beat_intervals = get_beat_intervals(
-        [b for b in analysis["all_beat_times"] if window_start <= b <= window_end],
-        start_offset=window_start,
-        segment_duration=segment_duration,
-    )
-    logger.info(f"Beat intervals: {len(beat_intervals)} cuts")
 
-    # Fetch fresh footage for each short (different clips)
-    logger.info(f"Fetching footage for short {short_num}...")
-    footage_paths = fetch_footage(song_title, bpm=bpm, energy=energy,
-                                   brightness=brightness, texture=texture)
-    if not footage_paths:
-        logger.error(f"No footage for short {short_num}. Skipping.")
-        return False
-
-    # Generate varied overlay text so the 4x/day channel does not feel templated.
+    # Pick the overlay before cut pacing. Text-heavy Shorts need calmer visuals;
+    # low-text Shorts can let the background move more.
     poem_lines = generate_overlay_text(
         track_name=song_title,
         genre=genre,
@@ -660,6 +652,27 @@ def render_and_upload_short(audio_path: str, analysis: dict,
     )
     if poem_lines:
         logger.info(f"Overlay text {short_num}: {poem_lines}")
+
+    if poem_lines:
+        cut_kwargs = {"min_interval": 2.0, "max_interval": 4.8, "skip_ratio": 0.78}
+    else:
+        cut_kwargs = {"min_interval": 1.4, "max_interval": 3.4, "skip_ratio": 0.45}
+
+    beat_intervals = get_beat_intervals(
+        [b for b in analysis["all_beat_times"] if window_start <= b <= window_end],
+        start_offset=window_start,
+        segment_duration=segment_duration,
+        **cut_kwargs,
+    )
+    logger.info(f"Beat intervals: {len(beat_intervals)} cuts")
+
+    # Fetch fresh footage for each short (different clips)
+    logger.info(f"Fetching footage for short {short_num}...")
+    footage_paths = fetch_footage(song_title, bpm=bpm, energy=energy,
+                                   brightness=brightness, texture=texture)
+    if not footage_paths:
+        logger.error(f"No footage for short {short_num}. Skipping.")
+        return False
 
     # Render
     final_video = render_short(
