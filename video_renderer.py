@@ -18,6 +18,7 @@ from typing import List, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 OVERLAY_MAX_LINES = int(os.getenv("OVERLAY_MAX_LINES", "5"))
+MIN_VISUAL_SEGMENT_SECONDS = float(os.getenv("MIN_VISUAL_SEGMENT_SECONDS", "1.2"))
 
 # Output dimensions (YouTube Shorts = 9:16)
 WIDTH = 1080
@@ -152,6 +153,28 @@ def crop_to_vertical(clip_path: str, output_path: str,
     return output_path
 
 
+def _merge_short_intervals(beat_intervals: List[Tuple[float, float]],
+                           min_duration: float = MIN_VISUAL_SEGMENT_SECONDS) -> List[Tuple[float, float]]:
+    """Merge tiny beat cuts so no source clip flashes for a split second."""
+    merged: List[Tuple[float, float]] = []
+    for start, end in beat_intervals:
+        if end <= start:
+            continue
+        if merged and end - start < min_duration:
+            prev_start, _ = merged[-1]
+            merged[-1] = (prev_start, end)
+        else:
+            merged.append((start, end))
+
+    if len(merged) > 1 and merged[0][1] - merged[0][0] < min_duration:
+        first_start, _ = merged[0]
+        _, second_end = merged[1]
+        merged[1] = (first_start, second_end)
+        merged.pop(0)
+
+    return merged
+
+
 def cut_footage_to_beats(footage_paths: List[str],
                           beat_intervals: List[Tuple[float, float]],
                           output_dir: str = "/tmp",
@@ -180,7 +203,11 @@ def cut_footage_to_beats(footage_paths: List[str],
     # Pre-compute clip durations for random seek offsets
     clip_durations = {}
 
-    for i, (start, end) in enumerate(beat_intervals):
+    stable_intervals = _merge_short_intervals(beat_intervals)
+    if len(stable_intervals) != len(beat_intervals):
+        logger.info("Merged %d short visual cuts", len(beat_intervals) - len(stable_intervals))
+
+    for i, (start, end) in enumerate(stable_intervals):
         duration = end - start
         if duration <= 0:
             continue
@@ -333,11 +360,8 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
                       overlay_max_lines: int = None) -> str:
     """
     Burn text overlays onto the video using ffmpeg drawtext.
-    - Song label: top-left corner, always visible
-    - Overlay text: appears inside the first second for Shorts
-    - Song title: visible from start, bottom
-    - Artist name: fades in later, bottom
-    - CTA: mid-video and final reminder
+    - Interesting text appears early and stays readable.
+    - Bottom label shows the current song and artist.
 
     poem_sets: list of poem_lines lists — used for long-form content (livestream).
                Each set is shown for CYCLE_SECS seconds, one after another.
@@ -355,44 +379,15 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
                 .replace(":", "\\:")
                 .replace('"', '\\"'))
 
-    safe_track = _escape(track_name)
     safe_artist = _escape(artist)
-    cta_start = max(0, total_duration - 4.5)
     has_center_overlay = bool(poem_lines) and not poem_sets
     if total_duration < 14.0:
-        hook_end = max(2.8, total_duration - 5.0)
+        hook_end = max(5.5, total_duration - 2.0)
     else:
-        hook_end = min(max(5.8, total_duration * 0.34),
-                       max(5.8, total_duration - 8.0))
-    if has_center_overlay and total_duration >= 14.0:
-        natural_cta_start = min(max(6.0, total_duration * 0.28), total_duration - 9.0)
-        early_cta_start = max(hook_end + 0.6, natural_cta_start)
-        early_cta_end = min(total_duration - 5.0, early_cta_start + 3.3)
-    else:
-        early_cta_start = 0.0
-        early_cta_end = 0.0
-    cta_text = "Stream link in bio"
-    safe_cta = _escape(cta_text)
-
-    # Artist fade: invisible until artist_in, then fades in over 1.5s
-    artist_in = min(4.0, total_duration * 0.18)
-    artist_fade_end = artist_in + 1.5
+        hook_end = min(max(11.0, total_duration * 0.62),
+                       max(11.0, total_duration - 3.0))
 
     filters = []
-
-    # Song label — clear context without pretending to be a clickable button.
-    filters.append(
-        f"drawtext={font_param}text='SONG PREVIEW':"
-        f"fontsize=38:fontcolor=white:"
-        f"box=1:boxcolor=0x111111@0.78:boxborderw=14:"
-        f"x=32:y=76"
-    )
-    filters.append(
-        f"drawtext={font_param}text='{safe_artist}':"
-        f"fontsize=26:fontcolor=white@0.82:"
-        f"borderw=2:bordercolor=black@0.5:"
-        f"x=32:y=136"
-    )
 
     # Resolve which text sets to show
     # poem_sets = multiple blocks for long videos; poem_lines = single block for Shorts
@@ -411,8 +406,8 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     else:
         bar_dur = 4.0
 
-    poem_y_start = 360  # high enough to hit before the thumb scrolls
-    line_spacing = 90   # spacing between wrapped sub-lines
+    poem_y_start = 300  # high enough to hit before the thumb scrolls
+    line_spacing = 105  # enough room for five lines without cutting off
 
     for set_idx, lines in enumerate(all_sets):
         # Time window this set is visible
@@ -437,7 +432,7 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
             safe_line = _escape(sub_line)
             # Shorts need useful text immediately; long videos can breathe by bar.
             if is_short_mode:
-                appear_at = slot_start + 0.15 + i * 0.55
+                appear_at = slot_start + 0.35 + i * 0.90
             else:
                 appear_at = slot_start + (1 + i) * bar_dur
                 if appear_at > slot_end - 1.0:
@@ -445,59 +440,49 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
                 appear_at = max(slot_start + 0.5, appear_at)
             disappear_at = slot_end
             y_pos = poem_y_start + i * line_spacing
-            base_size = 78 if i == 0 else 58
-            min_size = 54 if i == 0 else 44
+            base_size = 64
+            min_size = 44
             font_size = _fit_font_size(sub_line, base_size=base_size,
-                                       min_size=min_size, max_chars=18 if i == 0 else 24)
-            font_color = "0xfff3a3" if i == 0 else "white"
+                                       min_size=min_size, max_chars=24)
             filters.append(
                 f"drawtext={font_param}text='{safe_line}':"
-                f"fontsize={font_size}:fontcolor={font_color}:"
-                f"box=1:boxcolor=0x000000@0.40:boxborderw=18:"
+                f"fontsize={font_size}:fontcolor=white:"
                 f"borderw=3:bordercolor=black@0.85:"
                 f"shadowx=2:shadowy=2:shadowcolor=black@0.55:"
                 f"x=(w-text_w)/2:y={y_pos}:"
                 f"enable='between(t\\,{appear_at:.2f}\\,{disappear_at:.2f})'"
             )
 
-    # Song title — visible from start, bottom of screen
-    track_font = _fit_font_size(track_name, base_size=56, min_size=38, max_chars=26)
+    # Song title — persistent bottom label.
+    now_playing = f"Now Playing: {track_name}"
+    safe_now_playing = _escape(now_playing)
+    track_font = _fit_font_size(now_playing, base_size=44, min_size=30, max_chars=34)
     filters.append(
-        f"drawtext={font_param}text='{safe_track}':"
+        f"drawtext={font_param}text='{safe_now_playing}':"
         f"fontsize={track_font}:fontcolor=white:"
         f"borderw=4:bordercolor=black@0.85:"
         f"shadowx=2:shadowy=2:shadowcolor=black@0.55:"
-        f"x=(w-text_w)/2:y=h-430"
+        f"x=(w-text_w)/2:y=h-360"
     )
 
-    # Artist name — fades in at ~30% through
+    # Artist name — keep the existing bottom stack stable.
     artist_font = _fit_font_size(artist, base_size=40, min_size=30, max_chars=30)
     filters.append(
         f"drawtext={font_param}text='{safe_artist}':"
         f"fontsize={artist_font}:fontcolor=white:"
         f"borderw=3:bordercolor=black@0.85:"
         f"shadowx=2:shadowy=2:shadowcolor=black@0.55:"
-        f"x=(w-text_w)/2:y=h-365:"
-        f"enable='gte(t\\,{artist_in:.1f})':"
-        f"alpha='if(gte(t\\,{artist_fade_end:.1f})\\,0.75\\,(t-{artist_in:.1f})/{artist_fade_end - artist_in:.1f}*0.75)'"
+        f"x=(w-text_w)/2:y=h-305"
     )
 
-    # CTA — quick mid-video conversion cue plus a final reminder.
-    if early_cta_end > early_cta_start + 0.5:
-        filters.append(
-            f"drawtext={font_param}text='{safe_cta}':"
-            f"fontsize=48:fontcolor=white:"
-            f"box=1:boxcolor=0x111111@0.64:boxborderw=16:"
-            f"x=(w-text_w)/2:y=h-640:"
-            f"enable='between(t\\,{early_cta_start:.1f}\\,{early_cta_end:.1f})'"
-        )
+    stream_text = "Stream below"
+    safe_stream = _escape(stream_text)
     filters.append(
-        f"drawtext={font_param}text='{safe_cta}':"
-        f"fontsize=56:fontcolor=white:"
-        f"borderw=4:bordercolor=black@0.9:"
+        f"drawtext={font_param}text='{safe_stream}':"
+        f"fontsize=34:fontcolor=white:"
+        f"borderw=3:bordercolor=black@0.85:"
         f"shadowx=2:shadowy=2:shadowcolor=black@0.55:"
-        f"x=(w-text_w)/2:y=h/2-30:"
-        f"enable='gte(t\\,{cta_start:.1f})'"
+        f"x=(w-text_w)/2:y=h-255"
     )
 
     filter_text = ",".join(filters)

@@ -108,7 +108,7 @@ def generate_description(track_name: str, genre: str) -> str:
                     f"Keep it chill and genuine. Examples of the tone:\n"
                     f"- \"made this one late at night, just vibes\"\n"
                     f"- \"been sitting on this beat for a minute, felt right to drop it\"\n"
-                    f"- \"this one hits different with headphones on\"\n"
+                    f"- \"made this while testing out a darker sound\"\n"
                     f"Reply with ONLY the 1-2 sentences, nothing else."
                 ),
             }],
@@ -139,42 +139,31 @@ def generate_overlay_text(track_name: str = "", genre: str = "",
                           max_lines: int = None) -> list:
     """
     Generate varied overlay text for the video.
-    Four uploads/day cannot all use the same CTA pattern, so this rotates between
-    song-first hooks, Reddit/fact hooks, quick questions, low-text visual cuts,
-    and occasional artist CTAs.
+    Keep Shorts focused on useful/interesting text instead of direct song promo.
+    The song CTA lives in the bottom label rendered by video_renderer.py.
     """
     max_lines = max_lines or _OVERLAY_MAX_LINES
     mode = _pick_overlay_mode(short_num=short_num)
-    if mode == "visual":
-        return []
+    if mode == "protip":
+        lines = _pro_tip_overlay(max_lines=max_lines)
+        if lines:
+            return lines
+    if mode == "fact":
+        lines = _fact_overlay(max_lines=max_lines)
+        if lines:
+            return lines
     if mode == "reddit":
         reddit_lines = _random_reddit_overlay(max_lines=max_lines)
         if reddit_lines:
             return reddit_lines
-    if mode == "question":
-        return _question_overlay(track_name=track_name, genre=genre,
-                                 short_num=short_num, max_lines=max_lines)
-    if mode == "artist":
-        return _artist_overlay(track_name=track_name, short_num=short_num,
-                               max_lines=max_lines)
-
-    return _music_value_overlay(
-        track_name=track_name,
-        genre=genre,
-        bpm=bpm,
-        energy=energy,
-        brightness=brightness,
-        texture=texture,
-        short_num=short_num,
-        max_lines=max_lines,
-    )
+    return _fallback_facts(max_lines=max_lines)
 
 
 def generate_multiple_overlay_texts(n: int) -> list:
     """
     Generate n distinct overlay text blocks for long-form content (livestream).
-    Each block can be a song hook, question, artist CTA, Reddit/fact hook, or
-    a low-text visual cut.
+    Each block is useful/interesting text; direct song promo stays in the
+    persistent bottom label.
     """
     import random
     texts = []
@@ -189,7 +178,7 @@ def generate_multiple_overlay_texts(n: int) -> list:
             texts.append(lines)
     # Pad with fallbacks if needed
     while len(texts) < n:
-        texts.append(_fallback_music_tips())
+        texts.append(_fallback_facts())
     return texts
 
 
@@ -201,23 +190,59 @@ def _pick_overlay_mode(short_num: int = 1) -> str:
     if env_modes:
         modes = [m.strip().lower() for m in env_modes.split(",") if m.strip()]
     else:
-        modes = ["song", "visual", "reddit", "question", "artist", "visual", "song", "reddit"]
+        modes = ["protip", "reddit", "fact", "reddit"]
 
     day_offset = datetime.now(timezone.utc).timetuple().tm_yday
     idx = (day_offset + max(0, short_num - 1)) % len(modes)
     mode = modes[idx]
     if mode == "random":
-        mode = random.choice(["song", "visual", "reddit", "question", "artist"])
-    return mode if mode in {"song", "visual", "reddit", "question", "artist"} else "song"
+        mode = random.choice(["protip", "reddit", "fact"])
+    # Old env values should not bring back self-promo templates.
+    aliases = {
+        "lpt": "protip",
+        "tips": "protip",
+        "tip": "protip",
+        "facts": "fact",
+        "interesting": "reddit",
+        "song": "reddit",
+        "visual": "reddit",
+        "question": "reddit",
+        "artist": "reddit",
+    }
+    mode = aliases.get(mode, mode)
+    return mode if mode in {"protip", "reddit", "fact"} else "reddit"
 
 
 def _overlay_max_lines_for_duration(duration: float) -> int:
-    """Let longer/slower Shorts carry more text without crowding fast clips."""
-    if duration < 18.0:
-        return min(3, _OVERLAY_MAX_LINES)
-    if duration < 21.0:
-        return min(4, _OVERLAY_MAX_LINES)
+    """Keep the renderer ready for five readable lines on normal Shorts."""
     return _OVERLAY_MAX_LINES
+
+
+def _with_label(label: str, lines: list, max_lines: int = _OVERLAY_MAX_LINES) -> list:
+    if not lines:
+        return []
+    return _normalize_overlay_lines([label] + lines, max_lines=max_lines)
+
+
+def _pro_tip_overlay(max_lines: int = _OVERLAY_MAX_LINES) -> list:
+    lines = _life_pro_tips()
+    if lines:
+        return _with_label("PRO TIP", lines[:max(1, max_lines - 1)], max_lines=max_lines)
+    return _fallback_pro_tips(max_lines=max_lines)
+
+
+def _fact_overlay(max_lines: int = _OVERLAY_MAX_LINES) -> list:
+    sources = [_interesting_facts, _til_reddit, _useless_fact_api, _numbers_fact_api]
+    import random
+    random.shuffle(sources)
+    for source in sources:
+        try:
+            lines = source()
+            if lines:
+                return _with_label("DID YOU KNOW?", lines[:max(1, max_lines - 1)], max_lines=max_lines)
+        except Exception as e:
+            logger.warning(f"Fact overlay source {source.__name__} failed: {e}")
+    return _fallback_facts(max_lines=max_lines)
 
 
 def _random_reddit_overlay(max_lines: int = _OVERLAY_MAX_LINES) -> list:
@@ -245,179 +270,6 @@ def _random_reddit_overlay(max_lines: int = _OVERLAY_MAX_LINES) -> list:
             logger.warning(f"Overlay source {source.__name__} failed: {e}")
 
     return _fallback_facts(max_lines=max_lines)
-
-
-def _question_overlay(track_name: str = "", genre: str = "",
-                      short_num: int = 1,
-                      max_lines: int = _OVERLAY_MAX_LINES) -> list:
-    """Comment-bait without making every upload a direct ad."""
-    import random
-
-    song_name = (track_name or "this song").strip()
-    genre_l = (genre or "").lower()
-    prompts = [
-        ["VIBE CHECK", "night drive", "or gym playlist?", "comment one"],
-        ["WOULD YOU SAVE THIS?", "yes or skip?", "be honest", "stream link in bio"],
-        ["THIS PART", "headphones or car?", "where does it hit?", "comment the mood"],
-        ["PLAYLIST TEST", song_name[:32], "add or skip?", "stream link in bio"],
-        ["RATE THE DROP", "1 to 10", "no overthinking", "Star Drift"],
-    ]
-    if any(key in genre_l for key in ("ambient", "chill", "lofi")):
-        prompts.append(["MOOD CHECK", "study", "sleep", "or late drive?"])
-    return _normalize_overlay_lines(random.choice(prompts), max_lines=max_lines)
-
-
-def _artist_overlay(track_name: str = "", short_num: int = 1,
-                    max_lines: int = _OVERLAY_MAX_LINES) -> list:
-    """Occasional direct Star Drift CTA."""
-    import random
-
-    song_name = (track_name or "this song").strip()
-    prompts = [
-        ["STAR DRIFT", song_name[:32], "full song in bio", "save if it hits"],
-        ["NEW STAR DRIFT", "listen to this part", "then stream the song", "link in bio"],
-        ["IF THIS LOOPS", "save the song", "Star Drift", "stream link in bio"],
-    ]
-    if os.getenv("BEATSTARS_URL", "").strip() and short_num % 4 == 0:
-        prompts.append(["ARTISTS", "stream Star Drift", "beats also in bio", "use one for a hook"])
-    return _normalize_overlay_lines(random.choice(prompts), max_lines=max_lines)
-
-
-def _music_value_overlay(track_name: str = "", genre: str = "",
-                         bpm: float = 0, energy: str = "",
-                         brightness: str = "", texture: str = "",
-                         short_num: int = 1,
-                         max_lines: int = _OVERLAY_MAX_LINES) -> list:
-    """Pick a compact, song-first text hook for Shorts."""
-    import random
-
-    genre_l = (genre or "").lower()
-    energy_l = (energy or "").lower()
-    brightness_l = (brightness or "").lower()
-    texture_l = (texture or "").lower()
-    has_beat_link = bool(os.getenv("BEATSTARS_URL", "").strip())
-    song_name = (track_name or "this song").strip()
-
-    candidates = []
-
-    if bpm >= 145:
-        candidates.extend([
-            [
-                "FAST PART",
-                "wait for the switch",
-                "save it if it hits",
-                "stream link in bio",
-            ],
-            [
-                "PLAYLIST TEST",
-                "gym or night drive?",
-                "let this part decide",
-                "stream link in bio",
-            ],
-        ])
-    elif 0 < bpm <= 95:
-        candidates.extend([
-            [
-                "SLOW PART",
-                "headphones make it hit",
-                "save for later",
-                "stream link in bio",
-            ],
-            [
-                "LATE NIGHT TEST",
-                "window down",
-                "volume up",
-                "stream link in bio",
-            ],
-        ])
-
-    if any(key in genre_l for key in ("trap", "hip", "rap", "phonk")):
-        candidates.extend([
-            [
-                "THIS PART",
-                "is for the late drive",
-                "save if you feel it",
-                "stream link in bio",
-            ],
-            [
-                "STAR DRIFT",
-                song_name[:32],
-                "does this hit?",
-                "stream link in bio",
-            ],
-        ])
-
-    if "high" in energy_l or "bright" in brightness_l:
-        candidates.append([
-            "TURN THIS UP",
-            "best part starts early",
-            "save for the playlist",
-            "stream link in bio",
-        ])
-
-    if "dark" in brightness_l or "distorted" in texture_l:
-        candidates.append([
-            "DARK MODE SONG",
-            "late night headphones",
-            "let the drop breathe",
-            "stream link in bio",
-        ])
-
-    if has_beat_link and short_num % 3 == 0:
-        candidates.append([
-            "ARTISTS",
-            "stream Star Drift",
-            "beats also in bio",
-            "use one for a hook",
-        ])
-
-    candidates.extend(_fallback_music_tips(pool=True))
-    return _normalize_overlay_lines(random.choice(candidates), max_lines=max_lines)
-
-
-def _fallback_music_tips(pool: bool = False):
-    tips = [
-        [
-            "NEW SONG PREVIEW",
-            "listen for the hook",
-            "save if it hits",
-            "stream link in bio",
-        ],
-        [
-            "MOOD CHECK",
-            "night drive",
-            "or headphones?",
-            "stream link in bio",
-        ],
-        [
-            "STAR DRIFT",
-            "if this part loops",
-            "save the song",
-            "stream link in bio",
-        ],
-        [
-            "PLAYLIST CHECK",
-            "would you add this?",
-            "let the drop answer",
-            "stream link in bio",
-        ],
-        [
-            "DO NOT SKIP",
-            "the hook comes fast",
-            "wait for it",
-            "stream link in bio",
-        ],
-        [
-            "VIBE TEST",
-            "late night or sunrise?",
-            "comment the mood",
-            "stream link in bio",
-        ],
-    ]
-    if pool:
-        return tips
-    import random
-    return _normalize_overlay_lines(random.choice(tips))
 
 
 def _normalize_overlay_lines(lines: list, max_chars: int = _OVERLAY_MAX_CHARS,
@@ -618,6 +470,20 @@ def _fallback_facts(max_lines: int = _OVERLAY_MAX_LINES) -> list:
     return _fit_overlay_text(random.choice(facts), max_lines=max_lines)
 
 
+def _fallback_pro_tips(max_lines: int = _OVERLAY_MAX_LINES) -> list:
+    import random
+    tips = [
+        "If a task takes under two minutes, do it before it becomes clutter.",
+        "Put your phone across the room when you need one focused hour.",
+        "Write the first bad version fast, then edit it slowly.",
+        "Use one playlist for focus so your brain learns the cue.",
+        "Before buying something, wait one day and see if you still care.",
+        "When you feel stuck, shrink the task until it has one obvious next move.",
+    ]
+    lines = _fit_overlay_text(random.choice(tips), max_lines=max(1, max_lines - 1))
+    return _with_label("PRO TIP", lines, max_lines=max_lines)
+
+
 def _split_text(text: str, max_chars: int = 22, max_lines: int = 5) -> list:
     """Split text into lines of max_chars, breaking at word boundaries."""
     words = text.split()
@@ -680,9 +546,9 @@ def render_and_upload_short(audio_path: str, analysis: dict,
         logger.info(f"Overlay text {short_num}: {poem_lines}")
 
     if poem_lines:
-        cut_kwargs = {"min_interval": 2.0, "max_interval": 4.8, "skip_ratio": 0.78}
+        cut_kwargs = {"min_interval": 2.8, "max_interval": 5.8, "skip_ratio": 0.84}
     else:
-        cut_kwargs = {"min_interval": 1.4, "max_interval": 3.4, "skip_ratio": 0.45}
+        cut_kwargs = {"min_interval": 2.0, "max_interval": 4.2, "skip_ratio": 0.62}
 
     beat_intervals = get_beat_intervals(
         [b for b in analysis["all_beat_times"] if window_start <= b <= window_end],
