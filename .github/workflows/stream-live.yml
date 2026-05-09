@@ -2,9 +2,13 @@ name: Stream Stardrift Live
 
 on:
   schedule:
-    # Runs every 6 hours — streams for 5h 45min then exits, next run picks up
-    - cron: '0 */6 * * *'
+    # Keep a restart queued. Concurrency prevents multiple RTMP streams at once.
+    - cron: '0 * * * *'
   workflow_dispatch:  # Manual trigger for testing
+
+concurrency:
+  group: stardrift-livestream
+  cancel-in-progress: false
 
 jobs:
   stream:
@@ -51,7 +55,7 @@ jobs:
             echo "No livestream_meta.json found — stream will use existing YouTube title"
           fi
 
-      - name: Update YouTube live broadcast title + description
+      - name: Prepare YouTube live broadcast metadata + auto-start
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -71,8 +75,7 @@ jobs:
           title = meta.get("title", "").strip()
           description = meta.get("description", "").strip()
           if not title:
-              print("Empty title in metadata — skipping update")
-              sys.exit(0)
+              title = "Star Drift — 24/7 LIVE Music"
 
           client_id     = os.getenv("YOUTUBE_CLIENT_ID")
           client_secret = os.getenv("YOUTUBE_CLIENT_SECRET")
@@ -98,7 +101,7 @@ jobs:
 
               # Find the active/upcoming live broadcast
               resp = yt.liveBroadcasts().list(
-                  part="id,snippet,status",
+                  part="id,snippet,status,contentDetails",
                   broadcastStatus="active",
                   maxResults=5,
               ).execute()
@@ -107,7 +110,7 @@ jobs:
               # Also check upcoming if none active
               if not broadcasts:
                   resp2 = yt.liveBroadcasts().list(
-                      part="id,snippet,status",
+                      part="id,snippet,status,contentDetails",
                       broadcastStatus="upcoming",
                       maxResults=5,
                   ).execute()
@@ -123,12 +126,23 @@ jobs:
               snippet = broadcast["snippet"]
               snippet["title"] = title[:100]
               snippet["description"] = description[:5000]
+              content_details = broadcast.get("contentDetails", {})
+              content_details["enableAutoStart"] = True
+              content_details["enableAutoStop"] = False
 
-              yt.liveBroadcasts().update(
-                  part="snippet",
-                  body={"id": bid, "snippet": snippet},
-              ).execute()
-              print(f"✅ Updated broadcast '{bid}' title: {title[:80]}")
+              try:
+                  yt.liveBroadcasts().update(
+                      part="snippet,contentDetails",
+                      body={"id": bid, "snippet": snippet, "contentDetails": content_details},
+                  ).execute()
+                  print(f"✅ Updated broadcast '{bid}' title + auto-start: {title[:80]}")
+              except Exception as update_err:
+                  print(f"⚠️ Auto-start/contentDetails update failed, falling back to title only: {update_err}")
+                  yt.liveBroadcasts().update(
+                      part="snippet",
+                      body={"id": bid, "snippet": snippet},
+                  ).execute()
+                  print(f"✅ Updated broadcast '{bid}' title: {title[:80]}")
 
           except Exception as e:
               print(f"⚠️ Title update failed (non-fatal): {e}")
@@ -139,17 +153,47 @@ jobs:
         env:
           YOUTUBE_STREAM_KEY: ${{ secrets.YOUTUBE_STREAM_KEY }}
         run: |
-          # Stream for 5h 45min (20700s) — leaves buffer before 6h job timeout
-          # -stream_loop -1 loops the file indefinitely until -t cutoff
-          # Video is already h264 @ 2500kbps — copy it directly, no re-encode needed.
-          # Audio needs re-encode to 44100 Hz (YouTube FLV requirement; file is 48000 Hz).
-          ffmpeg -re \
-            -stream_loop -1 \
-            -i /tmp/livestream.mp4 \
-            -t 20700 \
-            -c:v copy \
-            -c:a aac \
-            -b:a 128k \
-            -ar 44100 \
-            -f flv \
-            "rtmp://a.rtmp.youtube.com/live2/$YOUTUBE_STREAM_KEY"
+          if [ -z "${YOUTUBE_STREAM_KEY:-}" ]; then
+            echo "ERROR: YOUTUBE_STREAM_KEY secret is missing"
+            exit 1
+          fi
+
+          # Stream for 5h 40min (20400s), leaving cleanup buffer before the 6h job timeout.
+          # If YouTube drops RTMP with Broken pipe, reconnect inside this same workflow run.
+          DEST="rtmp://a.rtmp.youtube.com/live2/$YOUTUBE_STREAM_KEY"
+          END_AT=$((SECONDS + 20400))
+          ATTEMPT=1
+
+          while [ "$SECONDS" -lt "$END_AT" ]; do
+            REMAINING=$((END_AT - SECONDS))
+            echo "Starting RTMP stream attempt $ATTEMPT for up to ${REMAINING}s"
+
+            set +e
+            ffmpeg -hide_banner -loglevel warning -stats -re \
+              -stream_loop -1 \
+              -i /tmp/livestream.mp4 \
+              -t "$REMAINING" \
+              -c:v copy \
+              -c:a aac \
+              -b:a 128k \
+              -ar 44100 \
+              -flvflags no_duration_filesize \
+              -f flv \
+              "$DEST"
+            EXIT_CODE=$?
+            set -e
+
+            if [ "$EXIT_CODE" -eq 0 ]; then
+              echo "ffmpeg exited cleanly"
+              break
+            fi
+
+            if [ "$SECONDS" -ge "$END_AT" ]; then
+              echo "ffmpeg failed at the end of the stream window with exit code $EXIT_CODE"
+              exit "$EXIT_CODE"
+            fi
+
+            echo "ffmpeg disconnected with exit code $EXIT_CODE; reconnecting in 30s"
+            sleep 30
+            ATTEMPT=$((ATTEMPT + 1))
+          done
