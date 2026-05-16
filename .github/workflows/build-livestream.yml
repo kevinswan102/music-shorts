@@ -1,7 +1,10 @@
 name: Build Livestream Video
 
 on:
-  workflow_dispatch:  # Manual trigger — run when new tracks added or to refresh
+  schedule:
+    # Rebuild every Sunday at 4am UTC so new tracks get picked up automatically
+    - cron: '0 4 * * 0'
+  workflow_dispatch:  # Manual trigger
 
 permissions:
   contents: write  # Needed to upload to GitHub Release
@@ -24,7 +27,8 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg libsndfile1
+          sudo apt-get install -y -qq ffmpeg libsndfile1 fonts-montserrat
+          sudo fc-cache -f
 
       - name: Install Python dependencies
         run: |

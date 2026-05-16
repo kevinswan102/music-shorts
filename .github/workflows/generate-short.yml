@@ -29,7 +29,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg libsndfile1 fonts-urw-base35 ttf-mscorefonts-installer
+          sudo apt-get install -y -qq ffmpeg libsndfile1 fonts-urw-base35 ttf-mscorefonts-installer fonts-montserrat
           sudo fc-cache -f
 
       - name: Install Python dependencies

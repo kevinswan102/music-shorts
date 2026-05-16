@@ -5,8 +5,7 @@ YouTube Upload Automation — Music Shorts
 import os
 import json
 import logging
-import pickle
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime
 
 try:
@@ -45,7 +44,6 @@ class YouTubeUploader:
             'https://www.googleapis.com/auth/youtube.force-ssl',
         ]
         self.credentials_file = 'youtube_credentials.json'
-        self.token_file = 'youtube_token.pickle'
         self.youtube_service = None
 
         logger.info(f"YouTube Uploader initialized - Enabled: {self.enabled}, Skip: {self.skip_upload}")
@@ -124,19 +122,6 @@ class YouTubeUploader:
                         return creds
                 except Exception as e:
                     logger.warning(f"Could not load credentials from JSON: {e}")
-
-            # Priority 2: pickle fallback
-            if os.path.exists(self.token_file):
-                try:
-                    with open(self.token_file, 'rb') as token:
-                        creds = pickle.load(token)
-                    if creds and creds.valid:
-                        return creds
-                    elif creds and creds.expired and creds.refresh_token:
-                        creds.refresh(Request())
-                        return creds
-                except (pickle.PickleError, EOFError):
-                    logger.warning("Could not load credentials from pickle")
 
             logger.error("No valid YouTube credentials found. Run: python3 youtube_auth_now.py")
             return None
@@ -306,6 +291,34 @@ class YouTubeUploader:
         except Exception as e:
             logger.warning(f"Comment failed (non-fatal): {e}")
 
+    def _generate_title(self, track_name: str, artist: str, genre: str) -> str:
+        """Pick a title format that feels natural, not templated."""
+        import random
+        from datetime import timezone
+        day = datetime.now(timezone.utc).timetuple().tm_yday
+        upload_num = self.uploads_today
+
+        formats = [
+            f"{track_name} - {artist}",
+            f"{track_name} | {artist}",
+            f"{artist} - {track_name}",
+            f"{track_name}",
+            f"{track_name} ({genre})",
+            f"{artist} | {track_name}",
+        ]
+
+        idx = (day + upload_num) % len(formats)
+        base = formats[idx]
+
+        hashtags = ["#shorts", "#music", "#beats", "#newmusic", "#producer"]
+        random.seed(day + upload_num)
+        tag = random.choice(hashtags)
+
+        title = f"{base} {tag}"
+        if len(title) > 100:
+            title = base
+        return title
+
     def _generate_metadata(self, video_data: Dict[str, Any]) -> Dict[str, Any]:
         """Generate music-focused YouTube metadata with artist links."""
         track_name = video_data.get('track_name', 'Untitled')
@@ -321,7 +334,7 @@ class YouTubeUploader:
         apple_music = os.getenv('APPLE_MUSIC_URL', '')
         partner_link = os.getenv('PARTNER_LINK_1', '')
 
-        title = f"{track_name} | {artist} #shorts #music"
+        title = self._generate_title(track_name, artist, genre)
         title = title[:100]
 
         # Build description — personal tone, push streaming + beats

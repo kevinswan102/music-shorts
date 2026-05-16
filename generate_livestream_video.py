@@ -93,17 +93,8 @@ def render_full_track(audio_path: str, song_title: str) -> Optional[str]:
         logger.error(f"No footage fetched for '{song_title}', skipping.")
         return None
 
-    # Generate cycling text sets — one fresh Reddit fact every 35s of the track.
-    # Keeps viewers reading/engaged throughout the full track instead of just the first 30s.
-    CYCLE_SECS = 35.0
-    n_sets = max(1, int(duration / CYCLE_SECS))
-    from generate_short import generate_multiple_overlay_texts
-    poem_sets = generate_multiple_overlay_texts(n_sets)
-    logger.info(f"Generated {len(poem_sets)} text blocks for {duration:.0f}s track")
-    for idx, s in enumerate(poem_sets):
-        logger.info(f"  Block {idx+1}: {' / '.join(s)}")
-
     # render_short works for any duration — same function used by the Shorts pipeline
+    # No text overlay for livestream — clean visuals only
     final_video = render_short(
         audio_segment_path=audio_path,
         footage_paths=footage_paths,
@@ -113,7 +104,7 @@ def render_full_track(audio_path: str, song_title: str) -> Optional[str]:
         genre=genre,
         bpm=bpm,
         output_dir="/tmp",
-        poem_sets=poem_sets,
+        skip_text_overlay=True,
     )
 
     for path in footage_paths:

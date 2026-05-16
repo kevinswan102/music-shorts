@@ -531,13 +531,13 @@ def _fetch_archive(genre: str, num_clips: int, output_dir: str) -> List[str]:
 def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
                    output_dir: str = "/tmp", bpm: float = 0.0,
                    energy: str = "", brightness: str = "",
-                   texture: str = "") -> List[str]:
+                   texture: str = "", genre_override: str = "") -> List[str]:
     """
     High-level: classify genre, fetch from both Pexels + Archive.org,
     shuffle together for variety.
     """
-    genre = classify_genre_llm(track_title, bpm=bpm, energy=energy,
-                                brightness=brightness, texture=texture)
+    genre = genre_override or classify_genre_llm(track_title, bpm=bpm, energy=energy,
+                                                  brightness=brightness, texture=texture)
     style = SOURCE_STYLE.get(genre, "pexels")
     logger.info(f"Genre: {genre} | Style: {style}")
 

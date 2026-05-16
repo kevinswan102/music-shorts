@@ -15,6 +15,7 @@ import logging
 import gc
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
+import requests
 
 load_dotenv()
 
@@ -37,6 +38,23 @@ NUM_SHORTS = int(os.getenv("NUM_SHORTS", "2"))
 
 # Publishing slots in UTC hours — 10am / 1pm / 6pm / 9pm ET
 _PUBLISH_SLOTS_UTC = [14, 17, 22, 1]
+
+
+def _post_business_metric(payload: dict) -> None:
+    """Optionally log upload records to the shared business dashboard."""
+    url = os.getenv("BUSINESS_METRICS_URL", "").strip()
+    token = os.getenv("BUSINESS_METRICS_TOKEN", "").strip()
+    if not url:
+        return
+    headers = {}
+    if token:
+        headers["Authorization"] = token
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=12)
+        if resp.status_code >= 400:
+            logger.warning("Business metric post failed: %s %s", resp.status_code, resp.text[:160])
+    except Exception as exc:
+        logger.warning("Business metric post skipped: %s", exc)
 
 
 def _get_publish_schedule(n: int) -> list:
@@ -127,8 +145,8 @@ _BLOCKED = {
     "murder", "drug", "heroin", "cocaine", "meth",
 }
 
-# Max chars per overlay line — longer lines = more readable on a big stream screen
-_OVERLAY_MAX_CHARS = 32
+# Must match the renderer's wrap width (22 chars) so line count is accurate
+_OVERLAY_MAX_CHARS = 22
 _OVERLAY_MAX_LINES = int(os.getenv("OVERLAY_MAX_LINES", "5"))
 
 
@@ -144,6 +162,8 @@ def generate_overlay_text(track_name: str = "", genre: str = "",
     """
     max_lines = max_lines or _OVERLAY_MAX_LINES
     mode = _pick_overlay_mode(short_num=short_num)
+    if mode == "none":
+        return []
     if mode == "protip":
         lines = _pro_tip_overlay(max_lines=max_lines)
         if lines:
@@ -190,27 +210,25 @@ def _pick_overlay_mode(short_num: int = 1) -> str:
     if env_modes:
         modes = [m.strip().lower() for m in env_modes.split(",") if m.strip()]
     else:
-        modes = ["protip", "reddit", "fact", "reddit"]
+        modes = ["protip", "none", "fact", "reddit"]
 
     day_offset = datetime.now(timezone.utc).timetuple().tm_yday
     idx = (day_offset + max(0, short_num - 1)) % len(modes)
     mode = modes[idx]
     if mode == "random":
         mode = random.choice(["protip", "reddit", "fact"])
-    # Old env values should not bring back self-promo templates.
     aliases = {
         "lpt": "protip",
         "tips": "protip",
         "tip": "protip",
         "facts": "fact",
         "interesting": "reddit",
-        "song": "reddit",
-        "visual": "reddit",
-        "question": "reddit",
-        "artist": "reddit",
+        "clean": "none",
+        "visual": "none",
+        "notext": "none",
     }
     mode = aliases.get(mode, mode)
-    return mode if mode in {"protip", "reddit", "fact"} else "reddit"
+    return mode if mode in {"protip", "reddit", "fact", "none"} else "reddit"
 
 
 def _overlay_max_lines_for_duration(duration: float) -> int:
@@ -287,6 +305,8 @@ def _fit_overlay_text(text: str, max_chars: int = _OVERLAY_MAX_CHARS,
     return lines if 0 < len(lines) <= max_lines else []
 
 
+_last_reddit_fetch = 0.0
+
 def _reddit_top_facts(subreddit: str, strip_prefix: str = "") -> list:
     """
     Shared helper: fetch top posts from a subreddit, return one as split lines.
@@ -294,7 +314,12 @@ def _reddit_top_facts(subreddit: str, strip_prefix: str = "") -> list:
     public endpoints that don't need auth.
     strip_prefix: e.g. "LPT: " to remove from the start of post titles.
     """
-    import requests, random
+    import requests, random, time
+    global _last_reddit_fetch
+    elapsed = time.time() - _last_reddit_fetch
+    if elapsed < 2.0:
+        time.sleep(2.0 - elapsed)
+    _last_reddit_fetch = time.time()
 
     # Reddit blocks generic bot UAs. Use a browser-like UA to get through.
     _HEADERS = {
@@ -438,7 +463,7 @@ def _numbers_fact_api() -> list:
     """numbersapi.com — free trivia facts about random numbers, no key needed."""
     import requests
     resp = requests.get(
-        "http://numbersapi.com/random/trivia",
+        "https://numbersapi.com/random/trivia",
         params={"json": True},
         timeout=8,
     )
@@ -532,21 +557,34 @@ def render_and_upload_short(audio_path: str, analysis: dict,
     # Pick the overlay before cut pacing. Text-heavy Shorts need calmer visuals;
     # low-text Shorts can let the background move more.
     overlay_max_lines = _overlay_max_lines_for_duration(segment_duration)
-    poem_lines = generate_overlay_text(
-        track_name=song_title,
-        genre=genre,
-        bpm=bpm,
-        energy=energy,
-        brightness=brightness,
-        texture=texture,
-        short_num=short_num,
-        max_lines=overlay_max_lines,
-    )
-    if poem_lines:
-        logger.info(f"Overlay text {short_num}: {poem_lines}")
+    overlay_mode = _pick_overlay_mode(short_num=short_num)
+    skip_text = (overlay_mode == "none")
+    if skip_text:
+        poem_lines = []
+        logger.info(f"Short {short_num}: clean visuals (no text overlay)")
+    else:
+        poem_lines = generate_overlay_text(
+            track_name=song_title,
+            genre=genre,
+            bpm=bpm,
+            energy=energy,
+            brightness=brightness,
+            texture=texture,
+            short_num=short_num,
+            max_lines=overlay_max_lines,
+        )
+        if poem_lines:
+            logger.info(f"Overlay text {short_num}: {poem_lines}")
 
     if poem_lines:
+        # Text on screen — hold clips longer so viewer can read
         cut_kwargs = {"min_interval": 2.8, "max_interval": 5.8, "skip_ratio": 0.84}
+    elif genre in ("phonk", "hype", "trap", "electronic", "rock", "dark"):
+        # No text + high-energy genre — fast snappy cuts
+        cut_kwargs = {"min_interval": 1.2, "max_interval": 2.8, "skip_ratio": 0.45}
+    elif genre in ("chill", "lofi", "ambient", "rnb", "orchestral"):
+        # No text + chill genre — let clips breathe
+        cut_kwargs = {"min_interval": 2.5, "max_interval": 5.0, "skip_ratio": 0.72}
     else:
         cut_kwargs = {"min_interval": 2.0, "max_interval": 4.2, "skip_ratio": 0.62}
 
@@ -561,7 +599,8 @@ def render_and_upload_short(audio_path: str, analysis: dict,
     # Fetch fresh footage for each short (different clips)
     logger.info(f"Fetching footage for short {short_num}...")
     footage_paths = fetch_footage(song_title, bpm=bpm, energy=energy,
-                                   brightness=brightness, texture=texture)
+                                   brightness=brightness, texture=texture,
+                                   genre_override=genre)
     if not footage_paths:
         logger.error(f"No footage for short {short_num}. Skipping.")
         return False
@@ -577,6 +616,7 @@ def render_and_upload_short(audio_path: str, analysis: dict,
         poem_lines=poem_lines,
         bpm=bpm,
         overlay_max_lines=overlay_max_lines,
+        skip_text_overlay=skip_text,
     )
     if not final_video:
         logger.error(f"Render failed for short {short_num}. Skipping.")
@@ -603,9 +643,20 @@ def render_and_upload_short(audio_path: str, analysis: dict,
     if result.get("success"):
         logger.info(f"Short {short_num} uploaded: {result.get('video_url')}")
         success = True
+        _post_business_metric({
+            "channel": "music",
+            "format_label": "music_short",
+            "video_id": result.get("video_id", ""),
+            "url": result.get("video_url", ""),
+            "title": result.get("title") or song_title,
+            "published_at": publish_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "notes": f"{genre}; short {short_num}; bpm {bpm:.0f}; {energy}/{brightness}/{texture}",
+        })
     elif result.get("mock_upload"):
         logger.info(f"Short {short_num} mock upload: {result.get('would_upload', {}).get('title', '')}")
-        success = True
+        success = os.getenv("ARCHIVE_MOCK_UPLOADS", "false").lower() == "true"
+        if not success:
+            logger.info("Mock upload does not count as uploaded; archive will not advance.")
     else:
         logger.error(f"Short {short_num} upload failed: {result.get('error')}")
 

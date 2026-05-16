@@ -111,9 +111,40 @@ def _get_clip_duration(clip_path: str) -> float:
         return 0.0
 
 
+def _ken_burns_filter(duration: float, direction: str = "in",
+                      intensity: float = 0.08) -> str:
+    """
+    Slow zoom (Ken Burns) via zoompan filter.
+    intensity: how much to zoom (0.05 = subtle, 0.12 = noticeable).
+    """
+    fps = FPS
+    total_frames = max(1, round(duration * fps))
+    if direction == "in":
+        zoom_expr = f"1+{intensity}*on/{total_frames}"
+    else:
+        zoom_expr = f"{1 + intensity}-{intensity}*on/{total_frames}"
+    return (
+        f"zoompan=z='{zoom_expr}'"
+        f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+        f":d=1:s={WIDTH}x{HEIGHT}:fps={fps}"
+    )
+
+
+# Genre → visual energy style.
+# "fast" = snappy cuts, stronger zoom. "slow" = longer holds, gentle zoom.
+GENRE_ENERGY = {
+    "phonk": "fast", "hype": "fast", "trap": "fast", "electronic": "fast",
+    "rock": "fast", "dark": "fast",
+    "chill": "slow", "lofi": "slow", "ambient": "slow", "rnb": "slow",
+    "orchestral": "slow", "psychedelic": "slow",
+    "default": "medium",
+}
+
+
 def crop_to_vertical(clip_path: str, output_path: str,
                      seek_offset: float = 0.0, max_duration: float = 10.0,
-                     extra_vf: str = "", grade_override: str = "") -> str:
+                     extra_vf: str = "", grade_override: str = "",
+                     ken_burns: str = "", kb_intensity: float = 0.08) -> str:
     """
     Crop + color-grade a video clip to 9:16 (1080x1920) in one ffmpeg pass.
     Handles both vertical and horizontal source footage.
@@ -121,13 +152,25 @@ def crop_to_vertical(clip_path: str, output_path: str,
     max_duration: only process this many seconds (avoids processing full-length archive clips).
     extra_vf: optional additional filter (beat FX).
     grade_override: replaces default color grade with genre-specific theme.
+    ken_burns: "in", "out", or "" for slow zoom direction.
+    kb_intensity: zoom amount (0.05=subtle, 0.12=punchy).
     """
     grade = grade_override or COLOR_GRADE_FILTERS
-    filters = [
-        f"scale=-2:{HEIGHT}",
-        f"crop={WIDTH}:{HEIGHT}",
-        grade,
-    ]
+
+    if ken_burns:
+        filters = [
+            f"scale=-2:{HEIGHT + 200}",
+            f"crop={WIDTH + 100}:{HEIGHT + 200}",
+            _ken_burns_filter(max_duration, direction=ken_burns,
+                              intensity=kb_intensity),
+            grade,
+        ]
+    else:
+        filters = [
+            f"scale=-2:{HEIGHT}",
+            f"crop={WIDTH}:{HEIGHT}",
+            grade,
+        ]
     if extra_vf:
         filters.append(extra_vf)
     filter_chain = ",".join(filters)
@@ -233,11 +276,22 @@ def cut_footage_to_beats(footage_paths: List[str],
         if theme["accent"] and random.random() < theme["accent_chance"]:
             fx = theme["accent"]
 
+        # Alternate zoom in/out between clips for visual variety
+        kb_direction = "in" if i % 2 == 0 else "out"
+        energy_style = GENRE_ENERGY.get(genre, "medium")
+        if energy_style == "fast":
+            kb_intensity = 0.12
+        elif energy_style == "slow":
+            kb_intensity = 0.05
+        else:
+            kb_intensity = 0.08
+
         try:
             # Only process enough of the source clip for this beat + small buffer
             crop_to_vertical(src_clip, graded_path,
                              seek_offset=seek, max_duration=duration + 2.0,
-                             extra_vf=fx, grade_override=theme["grade"])
+                             extra_vf=fx, grade_override=theme["grade"],
+                             ken_burns=kb_direction, kb_intensity=kb_intensity)
 
             # Trim to EXACT frame count (not float duration)
             cmd = [
@@ -297,28 +351,42 @@ def concat_segments(segment_paths: List[str], output_path: str) -> str:
 
 
 def _find_font() -> str:
-    """Return a clean bold sans font path for ffmpeg drawtext."""
+    """Return a heavy/black weight font for ffmpeg drawtext.
+    Prioritizes Montserrat Black or similar thick geometric sans —
+    these pop on video like modern Shorts/TikTok text.
+    """
     candidates = [
-        # GitHub Actions / Ubuntu.
+        # Montserrat Black — the go-to for modern short-form video text.
+        # Install on CI: fonts-montserrat or download from Google Fonts.
+        "/usr/share/fonts/truetype/montserrat/Montserrat-Black.ttf",
+        "/usr/share/fonts/truetype/montserrat/Montserrat-ExtraBold.ttf",
+        "/usr/local/share/fonts/Montserrat-Black.ttf",
+        # Bebas Neue — tall condensed, looks great for overlays.
+        "/usr/share/fonts/truetype/bebas-neue/BebasNeue-Regular.ttf",
+        "/usr/local/share/fonts/BebasNeue-Regular.ttf",
+        # Inter Black — clean, modern, widely available.
+        "/usr/share/fonts/truetype/inter/Inter-Black.ttf",
+        "/usr/local/share/fonts/Inter-Black.ttf",
+        # Poppins Bold/Black.
+        "/usr/share/fonts/truetype/poppins/Poppins-Black.ttf",
+        "/usr/local/share/fonts/Poppins-Black.ttf",
+        # Fallbacks that still look decent (bold weight).
+        "/usr/share/fonts/truetype/noto/NotoSans-Black.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-ExtraBold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        # macOS local rendering.
+        # macOS — SF Pro Heavy or Helvetica Neue Bold.
+        "/System/Library/Fonts/SFCompact-Heavy.otf",
+        "/Library/Fonts/SF-Pro-Display-Heavy.otf",
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-        "/Library/Fonts/Arial Bold.ttf",
-        "/System/Library/Fonts/Supplemental/Helvetica Bold.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
-        # Last resort if only old meme/edit fonts are installed.
-        "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf",
-        "/usr/share/fonts/truetype/impact.ttf",
-        "/System/Library/Fonts/Supplemental/Impact.ttf",
     ]
     for path in candidates:
         if os.path.exists(path):
             return path
-    return ""  # let ffmpeg use its built-in (last resort)
+    return ""
 
 
 def _wrap_overlay_text(text: str, max_chars: int = 28) -> list:
@@ -382,10 +450,10 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     safe_artist = _escape(artist)
     has_center_overlay = bool(poem_lines) and not poem_sets
     if total_duration < 14.0:
-        hook_end = max(5.5, total_duration - 2.0)
+        hook_end = max(7.0, total_duration - 1.5)
     else:
-        hook_end = min(max(11.0, total_duration * 0.62),
-                       max(11.0, total_duration - 3.0))
+        hook_end = min(max(12.0, total_duration * 0.70),
+                       total_duration - 2.0)
 
     filters = []
 
@@ -421,18 +489,20 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
             break  # past end of video
 
         # Expand each source line into word-wrapped sub-lines
+        # Use same max_chars as generator (22) to avoid overflow
         wrapped_lines = []
         for line in lines:
-            wrapped_lines.extend(_wrap_overlay_text(line, max_chars=24))
+            wrapped_lines.extend(_wrap_overlay_text(line, max_chars=22))
         if is_short_mode:
             wrapped_lines = wrapped_lines[:overlay_max_lines]
 
         n = len(wrapped_lines)
         for i, sub_line in enumerate(wrapped_lines):
             safe_line = _escape(sub_line)
-            # Shorts need useful text immediately; long videos can breathe by bar.
+            # Shorts: stagger lines so viewer can read each one as it appears.
+            # ~1.6s between lines gives time to absorb without feeling rushed.
             if is_short_mode:
-                appear_at = slot_start + 0.35 + i * 0.90
+                appear_at = slot_start + 0.5 + i * 1.6
             else:
                 appear_at = slot_start + (1 + i) * bar_dur
                 if appear_at > slot_end - 1.0:
@@ -447,31 +517,28 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
             filters.append(
                 f"drawtext={font_param}text='{safe_line}':"
                 f"fontsize={font_size}:fontcolor=white:"
-                f"borderw=3:bordercolor=black@0.85:"
-                f"shadowx=2:shadowy=2:shadowcolor=black@0.55:"
+                f"borderw=6:bordercolor=black:"
                 f"x=(w-text_w)/2:y={y_pos}:"
                 f"enable='between(t\\,{appear_at:.2f}\\,{disappear_at:.2f})'"
             )
 
-    # Song title — persistent bottom label.
-    now_playing = f"Now Playing: {track_name}"
+    # Song title — persistent bottom label (yellow accent like YouTube captions)
+    now_playing = f"Now Playing\\: {track_name}"
     safe_now_playing = _escape(now_playing)
-    track_font = _fit_font_size(now_playing, base_size=44, min_size=30, max_chars=34)
+    track_font = _fit_font_size(f"Now Playing: {track_name}", base_size=44, min_size=30, max_chars=34)
     filters.append(
         f"drawtext={font_param}text='{safe_now_playing}':"
-        f"fontsize={track_font}:fontcolor=white:"
-        f"borderw=4:bordercolor=black@0.85:"
-        f"shadowx=2:shadowy=2:shadowcolor=black@0.55:"
+        f"fontsize={track_font}:fontcolor=#FFDD00:"
+        f"borderw=5:bordercolor=black:"
         f"x=(w-text_w)/2:y=h-360"
     )
 
-    # Artist name — keep the existing bottom stack stable.
+    # Artist name
     artist_font = _fit_font_size(artist, base_size=40, min_size=30, max_chars=30)
     filters.append(
         f"drawtext={font_param}text='{safe_artist}':"
         f"fontsize={artist_font}:fontcolor=white:"
-        f"borderw=3:bordercolor=black@0.85:"
-        f"shadowx=2:shadowy=2:shadowcolor=black@0.55:"
+        f"borderw=4:bordercolor=black:"
         f"x=(w-text_w)/2:y=h-305"
     )
 
@@ -479,10 +546,32 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     safe_stream = _escape(stream_text)
     filters.append(
         f"drawtext={font_param}text='{safe_stream}':"
-        f"fontsize=34:fontcolor=white:"
-        f"borderw=3:bordercolor=black@0.85:"
-        f"shadowx=2:shadowy=2:shadowcolor=black@0.55:"
+        f"fontsize=34:fontcolor=#AAAAAA:"
+        f"borderw=3:bordercolor=black:"
         f"x=(w-text_w)/2:y=h-255"
+    )
+
+    # End-card CTA — fades in for the last 3 seconds
+    import hashlib
+    cta_options = [
+        "subscribe for more",
+        "more on the channel",
+        "new music daily",
+        "subscribe",
+        "new drops every day",
+    ]
+    cta_seed = int(hashlib.md5(track_name.encode()).hexdigest()[:8], 16)
+    cta_text = _escape(cta_options[cta_seed % len(cta_options)])
+    cta_appear = max(0, total_duration - 3.5)
+    cta_end = total_duration
+    # Fade in via alpha: 0→1 over 0.6s
+    cta_alpha = f"if(lt(t-{cta_appear:.2f}\\,0.6)\\,(t-{cta_appear:.2f})/0.6\\,1)"
+    filters.append(
+        f"drawtext={font_param}text='{cta_text}':"
+        f"fontsize=56:fontcolor=white@'{cta_alpha}':"
+        f"borderw=6:bordercolor=black:"
+        f"x=(w-text_w)/2:y=220:"
+        f"enable='between(t\\,{cta_appear:.2f}\\,{cta_end:.2f})'"
     )
 
     filter_text = ",".join(filters)
@@ -539,12 +628,13 @@ def render_short(audio_segment_path: str,
                   bpm: float = 0,
                   output_dir: str = "/tmp",
                   poem_sets: list = None,
-                  overlay_max_lines: int = None) -> Optional[str]:
+                  overlay_max_lines: int = None,
+                  skip_text_overlay: bool = False) -> Optional[str]:
     """
     Top-level render function:
     1. Cut footage to beat intervals with color grading
     2. Concatenate via stream-copy
-    3. Burn text overlay
+    3. Burn text overlay (unless skip_text_overlay=True)
     4. Mux with audio
     5. Cleanup temp files
     Returns path to final MP4, or None on failure.
@@ -570,17 +660,19 @@ def render_short(audio_segment_path: str,
         logger.error(f"Concat failed: {e}")
         return None
 
-    # Step 3: Text overlay
-    text_path = os.path.join(output_dir, f"text_{ts}.mp4")
-    try:
-        # Calculate total duration from beat intervals for CTA timing
-        total_dur = beat_intervals[-1][1] if beat_intervals else 30.0
-        add_text_overlay(concat_path, track_name, artist, text_path,
-                         total_duration=total_dur, poem_lines=poem_lines, bpm=bpm,
-                         poem_sets=poem_sets, overlay_max_lines=overlay_max_lines)
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Text overlay failed: {e}")
-        text_path = concat_path  # fall back to no-text version
+    # Step 3: Text overlay (skip for livestream — clean visuals only)
+    total_dur = beat_intervals[-1][1] if beat_intervals else 30.0
+    if skip_text_overlay:
+        text_path = concat_path
+    else:
+        text_path = os.path.join(output_dir, f"text_{ts}.mp4")
+        try:
+            add_text_overlay(concat_path, track_name, artist, text_path,
+                             total_duration=total_dur, poem_lines=poem_lines, bpm=bpm,
+                             poem_sets=poem_sets, overlay_max_lines=overlay_max_lines)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Text overlay failed: {e}")
+            text_path = concat_path
 
     # Step 4: Mux with audio
     final_name = f"music_short_{ts}.mp4"
