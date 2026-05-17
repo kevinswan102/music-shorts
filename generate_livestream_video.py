@@ -107,6 +107,7 @@ def render_full_track(audio_path: str, song_title: str, exclude_ids: set = None)
         bpm=bpm,
         output_dir="/tmp",
         skip_text_overlay=True,
+        skip_cta=True,
     )
 
     for path in footage_paths:

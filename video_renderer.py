@@ -618,6 +618,44 @@ def mux_audio_video(video_path: str, audio_path: str,
     return output_path
 
 
+def _burn_cta_only(video_path: str, track_name: str, output_path: str, total_duration: float) -> str:
+    """Burn just the subscribe CTA at the end — used for no-text-overlay Shorts."""
+    import hashlib
+    font = _find_font()
+    font_param = f"fontfile={font}:" if font else ""
+
+    cta_options = [
+        "subscribe for more",
+        "more on the channel",
+        "new music daily",
+        "subscribe",
+        "new drops every day",
+    ]
+    cta_seed = int(hashlib.md5(track_name.encode()).hexdigest()[:8], 16)
+    cta_text = cta_options[cta_seed % len(cta_options)].replace("'", "'\\''")
+    cta_appear = max(0, total_duration - 3.5)
+    cta_end = total_duration
+    cta_alpha = f"if(lt(t-{cta_appear:.2f}\\,0.6)\\,(t-{cta_appear:.2f})/0.6\\,1)"
+
+    vf = (
+        f"drawtext={font_param}text='{cta_text}':"
+        f"fontsize=56:fontcolor=white@'{cta_alpha}':"
+        f"borderw=6:bordercolor=black:"
+        f"x=(w-text_w)/2:y=220:"
+        f"enable='between(t\\,{cta_appear:.2f}\\,{cta_end:.2f})'"
+    )
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-pix_fmt", "yuv420p", "-c:a", "copy",
+        output_path,
+    ]
+    subprocess.run(cmd, check=True, timeout=120)
+    return output_path
+
+
 def render_short(audio_segment_path: str,
                   footage_paths: List[str],
                   beat_intervals: List[Tuple[float, float]],
@@ -629,7 +667,8 @@ def render_short(audio_segment_path: str,
                   output_dir: str = "/tmp",
                   poem_sets: list = None,
                   overlay_max_lines: int = None,
-                  skip_text_overlay: bool = False) -> Optional[str]:
+                  skip_text_overlay: bool = False,
+                  skip_cta: bool = False) -> Optional[str]:
     """
     Top-level render function:
     1. Cut footage to beat intervals with color grading
@@ -638,6 +677,8 @@ def render_short(audio_segment_path: str,
     4. Mux with audio
     5. Cleanup temp files
     Returns path to final MP4, or None on failure.
+    skip_text_overlay: skip content text (poem/fact lines + now playing label)
+    skip_cta: skip the subscribe CTA at end (True for livestream only)
     """
     ts = int(time.time())
 
@@ -663,7 +704,15 @@ def render_short(audio_segment_path: str,
     # Step 3: Text overlay (skip for livestream — clean visuals only)
     total_dur = beat_intervals[-1][1] if beat_intervals else 30.0
     if skip_text_overlay:
-        text_path = concat_path
+        if not skip_cta:
+            text_path = os.path.join(output_dir, f"cta_{ts}.mp4")
+            try:
+                _burn_cta_only(concat_path, track_name, text_path, total_dur)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"CTA overlay failed: {e}")
+                text_path = concat_path
+        else:
+            text_path = concat_path
     else:
         text_path = os.path.join(output_dir, f"text_{ts}.mp4")
         try:
