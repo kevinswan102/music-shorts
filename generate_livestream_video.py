@@ -50,11 +50,12 @@ def get_all_available_ids() -> set:
     return {name.replace(".mp3", "") for name in assets if name.endswith(".mp3")}
 
 
-def render_full_track(audio_path: str, song_title: str) -> Optional[str]:
+def render_full_track(audio_path: str, song_title: str, exclude_ids: set = None) -> Optional[str]:
     """
     Render a full-length beat-synced video for one track.
     Same pipeline as the shorts but window = full track (0 → duration).
     Returns path to final MP4, or None on failure.
+    exclude_ids: shared set of Pexels video IDs to avoid repeating clips across tracks.
     """
     logger.info(f"Analyzing: {song_title}")
     analysis = analyze_track(audio_path)
@@ -88,6 +89,7 @@ def render_full_track(audio_path: str, song_title: str) -> Optional[str]:
         energy=energy,
         brightness=brightness,
         texture=texture,
+        exclude_ids=exclude_ids,
     )
     if not footage_paths:
         logger.error(f"No footage fetched for '{song_title}', skipping.")
@@ -297,6 +299,7 @@ def main():
     track_videos = []
     rendered_titles = []
     processed = 0
+    global_used_clip_ids: set = set()
 
     import random
     ids_list = sorted(available_ids)
@@ -318,7 +321,7 @@ def main():
             logger.warning(f"  Audio download failed for {track_id}, skipping.")
             continue
 
-        video_path = render_full_track(audio_path, song_title)
+        video_path = render_full_track(audio_path, song_title, exclude_ids=global_used_clip_ids)
 
         try:
             os.unlink(audio_path)

@@ -368,7 +368,7 @@ def _pexels_download(video_info: Dict, output_dir: str = "/tmp",
         return None
 
 
-def _fetch_pexels(genre: str, num_clips: int, output_dir: str) -> List[str]:
+def _fetch_pexels(genre: str, num_clips: int, output_dir: str, exclude_ids: set = None) -> List[str]:
     """Fetch clips from Pexels for a genre."""
     mood_keywords = list(PEXELS_KEYWORDS.get(genre, PEXELS_KEYWORDS["default"]))
     subject_keywords = list(PEXELS_SUBJECT_KEYWORDS)
@@ -381,7 +381,7 @@ def _fetch_pexels(genre: str, num_clips: int, output_dir: str) -> List[str]:
     keywords = subject_keywords[:subject_count] + mood_keywords
 
     downloaded = []
-    used_ids = set()
+    used_ids = set(exclude_ids) if exclude_ids else set()
 
     for keyword in keywords:
         if len(downloaded) >= num_clips:
@@ -396,6 +396,8 @@ def _fetch_pexels(genre: str, num_clips: int, output_dir: str) -> List[str]:
             if vid_id in used_ids:
                 continue
             used_ids.add(vid_id)
+            if exclude_ids is not None:
+                exclude_ids.add(vid_id)
             path = _pexels_download(video, output_dir=output_dir)
             if path:
                 downloaded.append(path)
@@ -531,10 +533,12 @@ def _fetch_archive(genre: str, num_clips: int, output_dir: str) -> List[str]:
 def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
                    output_dir: str = "/tmp", bpm: float = 0.0,
                    energy: str = "", brightness: str = "",
-                   texture: str = "", genre_override: str = "") -> List[str]:
+                   texture: str = "", genre_override: str = "",
+                   exclude_ids: set = None) -> List[str]:
     """
     High-level: classify genre, fetch from both Pexels + Archive.org,
     shuffle together for variety.
+    exclude_ids: optional set of Pexels video IDs to skip (for cross-track dedup).
     """
     genre = genre_override or classify_genre_llm(track_title, bpm=bpm, energy=energy,
                                                   brightness=brightness, texture=texture)
@@ -546,10 +550,10 @@ def fetch_footage(track_title: str, num_clips: int = TARGET_CLIPS,
         total = _fetch_archive(genre, num_clips, output_dir)
         # Fall back to pexels if archive doesn't deliver enough
         if len(total) < num_clips:
-            extra = _fetch_pexels(genre, num_clips - len(total), output_dir)
+            extra = _fetch_pexels(genre, num_clips - len(total), output_dir, exclude_ids=exclude_ids)
             total.extend(extra)
     else:
-        total = _fetch_pexels(genre, num_clips, output_dir)
+        total = _fetch_pexels(genre, num_clips, output_dir, exclude_ids=exclude_ids)
 
     random.shuffle(total)
 
