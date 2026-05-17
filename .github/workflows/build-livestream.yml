@@ -2,8 +2,8 @@ name: Build Livestream Video
 
 on:
   schedule:
-    # Rebuild every Sunday at 4am UTC so new tracks get picked up automatically
-    - cron: '0 4 * * 0'
+    # Rebuild every 3 days (Mon/Thu/Sun) at 4am UTC so new tracks rotate faster
+    - cron: '0 4 * * 0,1,4'
   workflow_dispatch:  # Manual trigger
 
 permissions:

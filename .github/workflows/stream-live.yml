@@ -75,7 +75,7 @@ jobs:
           title = meta.get("title", "").strip()
           description = meta.get("description", "").strip()
           if not title:
-              title = "Star Drift — 24/7 LIVE Music"
+              title = "24/7 Music Livestream — Star Drift"
 
           client_id     = os.getenv("YOUTUBE_CLIENT_ID")
           client_secret = os.getenv("YOUTUBE_CLIENT_SECRET")

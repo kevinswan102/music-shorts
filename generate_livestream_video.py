@@ -242,11 +242,11 @@ def generate_stream_meta(track_titles: List[str]) -> dict:
         logger.warning(f"LLM meta generation failed: {e}")
 
     # Fallback
-    title = f"🎵 {artist} — 24/7 Chill Music LIVE | Beat-Synced Visuals"[:100]
+    title = f"24/7 Music Livestream — {artist}"[:100]
     desc = (
         f"Looping 24/7 — {artist} beats with beat-synced visuals.\n"
-        f"New tracks added regularly. Subscribe so you never miss a drop.\n"
-        f"Best with headphones on."
+        f"New tracks added weekly. Subscribe for more.\n"
+        f"Best with headphones."
     )
     return {"title": title, "description": desc, "track_list": track_list}
 
@@ -298,8 +298,11 @@ def main():
     rendered_titles = []
     processed = 0
 
-    ids_to_process = sorted(available_ids)[:MAX_TRACKS]
-    logger.info(f"Processing {len(ids_to_process)} tracks (MAX_TRACKS={MAX_TRACKS})")
+    import random
+    ids_list = sorted(available_ids)
+    random.shuffle(ids_list)
+    ids_to_process = ids_list[:MAX_TRACKS]
+    logger.info(f"Processing {len(ids_to_process)} tracks (shuffled, MAX_TRACKS={MAX_TRACKS})")
 
     for i, track_id in enumerate(ids_to_process):
         meta = video_meta.get(track_id)
