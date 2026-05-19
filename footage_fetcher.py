@@ -72,6 +72,16 @@ PEXELS_KEYWORDS = {
         "lava lamp close up", "oil water colors", "paint mixing swirl",
         "soap bubble rainbow", "prism light rainbow", "aurora sky timelapse",
         "mushroom forest macro", "deep ocean bioluminescence", "northern lights",
+        "trippy abstract", "liquid art colorful", "holographic texture",
+        "color smoke slow motion", "crystal refraction light", "neon abstract loop",
+    ],
+    "trippy": [
+        "abstract liquid art", "paint swirl water", "ink drop slow motion",
+        "holographic shimmer", "kaleidoscope pattern", "neon tunnel loop",
+        "lava lamp glow", "color smoke dark", "prism rainbow refraction",
+        "soap bubble macro", "fluid art pour", "crystal light refraction",
+        "aurora borealis sky", "galaxy stars timelapse", "deep sea jellyfish glow",
+        "fractal zoom colorful", "oil water abstract", "glitch art digital",
     ],
     "dark": [
         "thunderstorm clouds", "dark forest fog", "storm ocean night",
@@ -104,6 +114,7 @@ PEXELS_KEYWORDS = {
         "person walking city night", "person driving at night",
         "person headphones close up", "neon bokeh lights", "ink drop water",
         "city timelapse night", "friends rooftop night", "concert crowd lights",
+        "cool visual effects", "abstract neon art", "cinematic slow motion",
     ],
 }
 
@@ -200,17 +211,19 @@ ARCHIVE_QUERIES = {
 # Which source to use per mood — "archive" or "pexels" (never mixed)
 # Keeps visual cohesion: all vintage OR all modern stock footage
 SOURCE_STYLE = {
-    "hype":        "pexels",    # modern subject/action clips
+    "hype":        "archive",   # vintage cartoons + action clips
     "phonk":       "pexels",    # modern night-drive/street clips
     "trap":        "pexels",    # modern city/nightlife clips
-    "orchestral":  "pexels",    # cinematic modern scenes
+    "orchestral":  "archive",   # vintage epic/cinematic footage
     "electronic":  "pexels",    # modern neon/city footage
     "chill":       "pexels",    # modern nature/cozy
     "lofi":        "pexels",    # modern cozy vibes
     "ambient":     "pexels",    # modern nature/space
     "psychedelic": "pexels",    # colorful abstract modern
+    "trippy":      "pexels",    # abstract/trippy visuals
     "dark":        "pexels",    # modern dark/moody
     "rock":        "pexels",    # modern concert/road footage
+    "rnb":         "pexels",    # modern night vibes
     "default":     "pexels",    # modern stock
 }
 
@@ -223,7 +236,8 @@ def classify_genre(track_title: str) -> str:
     title_lower = track_title.lower()
     # Order matters — more specific matches first
     hints = {
-        "psychedelic": ["psychedelic", "trippy", "acid", "fractal", "kaleidoscope", "experimental", "weird"],
+        "trippy": ["trippy", "acid", "fractal", "kaleidoscope", "experimental", "weird", "glitch"],
+        "psychedelic": ["psychedelic"],
         "dark": ["ghost", "nightmare", "demon", "horror", "scream", "doom", "grave", "cursed", "haunted"],
         "rock": ["rock", "guitar", "punk", "grunge", "metal", "shred"],
         "phonk": ["phonk", "drift", "cowbell", "memphis"],
@@ -281,7 +295,8 @@ def classify_genre_llm(track_title: str, bpm: float = 0.0,
                     f"- chill: bright, summer, love, day, sun, breeze, relax, soft, peaceful\n"
                     f"- lofi: cozy, study, warm, nostalgic, rainy, coffee, late night\n"
                     f"- rnb: smooth, soulful, romantic, slow jam, bedroom, night drive\n"
-                    f"- psychedelic: trippy, experimental, weird, acid, colorful, dream\n"
+                    f"- trippy: trippy, experimental, weird, acid, glitch, fractal\n"
+                    f"- psychedelic: psychedelic, colorful, dream, ethereal visuals\n"
                     f"- dark: ghost, haunted, cursed, demon, horror, eerie, nightmare, doom\n"
                     f"- rock: guitars, punk, grunge, alt rock, concert energy\n"
                     f"- phonk: memphis, drift, cowbell, dark bass, skrt\n"

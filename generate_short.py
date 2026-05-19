@@ -210,7 +210,7 @@ def _pick_overlay_mode(short_num: int = 1) -> str:
     if env_modes:
         modes = [m.strip().lower() for m in env_modes.split(",") if m.strip()]
     else:
-        modes = ["protip", "none", "fact", "reddit"]
+        modes = ["protip", "reddit", "fact", "reddit"]
 
     day_offset = datetime.now(timezone.utc).timetuple().tm_yday
     idx = (day_offset + max(0, short_num - 1)) % len(modes)
@@ -460,15 +460,14 @@ def _useless_fact_api() -> list:
 
 
 def _numbers_fact_api() -> list:
-    """numbersapi.com — free trivia facts about random numbers, no key needed."""
+    """catfact.ninja — free random cat facts, no key needed (numbersapi is dead)."""
     import requests
     resp = requests.get(
-        "https://numbersapi.com/random/trivia",
-        params={"json": True},
+        "https://catfact.ninja/fact",
         timeout=8,
     )
     resp.raise_for_status()
-    text = resp.json().get("text", "").strip()
+    text = resp.json().get("fact", "").strip()
     if not text or len(text) < 20:
         return []
     words = set(text.lower().split())
@@ -577,16 +576,16 @@ def render_and_upload_short(audio_path: str, analysis: dict,
             logger.info(f"Overlay text {short_num}: {poem_lines}")
 
     if poem_lines:
-        # Text on screen — hold clips longer so viewer can read
-        cut_kwargs = {"min_interval": 2.8, "max_interval": 5.8, "skip_ratio": 0.84}
-    elif genre in ("phonk", "hype", "trap", "electronic", "rock", "dark"):
+        # Text on screen — hold clips a bit longer so viewer can read
+        cut_kwargs = {"min_interval": 2.0, "max_interval": 4.0, "skip_ratio": 0.75}
+    elif genre in ("phonk", "hype", "trap", "electronic", "rock", "dark", "trippy"):
         # No text + high-energy genre — fast snappy cuts
-        cut_kwargs = {"min_interval": 1.2, "max_interval": 2.8, "skip_ratio": 0.45}
+        cut_kwargs = {"min_interval": 1.0, "max_interval": 2.2, "skip_ratio": 0.40}
     elif genre in ("chill", "lofi", "ambient", "rnb", "orchestral"):
-        # No text + chill genre — let clips breathe
-        cut_kwargs = {"min_interval": 2.5, "max_interval": 5.0, "skip_ratio": 0.72}
+        # No text + chill genre — let clips breathe but still move
+        cut_kwargs = {"min_interval": 1.8, "max_interval": 3.8, "skip_ratio": 0.65}
     else:
-        cut_kwargs = {"min_interval": 2.0, "max_interval": 4.2, "skip_ratio": 0.62}
+        cut_kwargs = {"min_interval": 1.5, "max_interval": 3.2, "skip_ratio": 0.55}
 
     beat_intervals = get_beat_intervals(
         [b for b in analysis["all_beat_times"] if window_start <= b <= window_end],

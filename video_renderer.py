@@ -500,9 +500,9 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
         for i, sub_line in enumerate(wrapped_lines):
             safe_line = _escape(sub_line)
             # Shorts: stagger lines so viewer can read each one as it appears.
-            # ~1.6s between lines gives time to absorb without feeling rushed.
+            # ~2.2s between lines — slow reveal that matches the music vibe.
             if is_short_mode:
-                appear_at = slot_start + 0.5 + i * 1.6
+                appear_at = slot_start + 0.8 + i * 2.2
             else:
                 appear_at = slot_start + (1 + i) * bar_dur
                 if appear_at > slot_end - 1.0:
@@ -523,7 +523,7 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
             )
 
     # Song title — persistent bottom label (yellow accent like YouTube captions)
-    now_playing = f"Now Playing\\: {track_name}"
+    now_playing = f"Now Playing: {track_name}"
     safe_now_playing = _escape(now_playing)
     track_font = _fit_font_size(f"Now Playing: {track_name}", base_size=44, min_size=30, max_chars=34)
     filters.append(
@@ -564,11 +564,11 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     cta_text = _escape(cta_options[cta_seed % len(cta_options)])
     cta_appear = max(0, total_duration - 3.5)
     cta_end = total_duration
-    # Fade in via alpha: 0→1 over 0.6s
     cta_alpha = f"if(lt(t-{cta_appear:.2f}\\,0.6)\\,(t-{cta_appear:.2f})/0.6\\,1)"
     filters.append(
         f"drawtext={font_param}text='{cta_text}':"
-        f"fontsize=56:fontcolor=white@'{cta_alpha}':"
+        f"fontsize=56:fontcolor=white:"
+        f"alpha='{cta_alpha}':"
         f"borderw=6:bordercolor=black:"
         f"x=(w-text_w)/2:y=220:"
         f"enable='between(t\\,{cta_appear:.2f}\\,{cta_end:.2f})'"
@@ -639,7 +639,8 @@ def _burn_cta_only(video_path: str, track_name: str, output_path: str, total_dur
 
     vf = (
         f"drawtext={font_param}text='{cta_text}':"
-        f"fontsize=56:fontcolor=white@'{cta_alpha}':"
+        f"fontsize=56:fontcolor=white:"
+        f"alpha='{cta_alpha}':"
         f"borderw=6:bordercolor=black:"
         f"x=(w-text_w)/2:y=220:"
         f"enable='between(t\\,{cta_appear:.2f}\\,{cta_end:.2f})'"
