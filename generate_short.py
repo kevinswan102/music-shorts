@@ -210,7 +210,7 @@ def _pick_overlay_mode(short_num: int = 1) -> str:
     if env_modes:
         modes = [m.strip().lower() for m in env_modes.split(",") if m.strip()]
     else:
-        modes = ["protip", "reddit", "fact", "reddit"]
+        modes = ["reddit", "none", "fact", "none"]
 
     day_offset = datetime.now(timezone.utc).timetuple().tm_yday
     idx = (day_offset + max(0, short_num - 1)) % len(modes)
