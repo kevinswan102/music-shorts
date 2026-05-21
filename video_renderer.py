@@ -18,7 +18,7 @@ from typing import List, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 OVERLAY_MAX_LINES = int(os.getenv("OVERLAY_MAX_LINES", "5"))
-MIN_VISUAL_SEGMENT_SECONDS = float(os.getenv("MIN_VISUAL_SEGMENT_SECONDS", "1.2"))
+MIN_VISUAL_SEGMENT_SECONDS = float(os.getenv("MIN_VISUAL_SEGMENT_SECONDS", "0.4"))
 
 # Output dimensions (YouTube Shorts = 9:16)
 WIDTH = 1080

@@ -576,16 +576,16 @@ def render_and_upload_short(audio_path: str, analysis: dict,
             logger.info(f"Overlay text {short_num}: {poem_lines}")
 
     if poem_lines:
-        # Text on screen — hold clips a bit longer so viewer can read
-        cut_kwargs = {"min_interval": 2.0, "max_interval": 4.0, "skip_ratio": 0.75}
+        # Text on screen — hold clips longer so viewer can read
+        cut_kwargs = {"min_interval": 1.5, "max_interval": 3.0, "skip_ratio": 0.60}
     elif genre in ("phonk", "hype", "trap", "electronic", "rock", "dark", "trippy"):
-        # No text + high-energy genre — fast snappy cuts
-        cut_kwargs = {"min_interval": 1.0, "max_interval": 2.2, "skip_ratio": 0.40}
+        # No text + high-energy genre — rapid cuts on nearly every beat
+        cut_kwargs = {"min_interval": 0.5, "max_interval": 1.4, "skip_ratio": 0.20}
     elif genre in ("chill", "lofi", "ambient", "rnb", "orchestral"):
-        # No text + chill genre — let clips breathe but still move
-        cut_kwargs = {"min_interval": 1.8, "max_interval": 3.8, "skip_ratio": 0.65}
+        # No text + chill genre — still moves but with breathing room
+        cut_kwargs = {"min_interval": 0.8, "max_interval": 2.2, "skip_ratio": 0.35}
     else:
-        cut_kwargs = {"min_interval": 1.5, "max_interval": 3.2, "skip_ratio": 0.55}
+        cut_kwargs = {"min_interval": 0.6, "max_interval": 1.8, "skip_ratio": 0.30}
 
     beat_intervals = get_beat_intervals(
         [b for b in analysis["all_beat_times"] if window_start <= b <= window_end],
