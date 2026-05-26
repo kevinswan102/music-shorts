@@ -271,6 +271,11 @@ def _random_reddit_overlay(max_lines: int = _OVERLAY_MAX_LINES) -> list:
         _mildly_interesting,
         _interesting_facts,
         _life_pro_tips,
+        _unpopular_opinion,
+        _explain_like_five,
+        _get_motivated,
+        _no_stupid_questions,
+        _ysk,
         _useless_fact_api,
         _numbers_fact_api,
     ]
@@ -412,28 +417,43 @@ def _reddit_top_facts(subreddit: str, strip_prefix: str = "") -> list:
 
 
 def _til_reddit() -> list:
-    """r/todayilearned top of week — proven interesting facts."""
     return _reddit_top_facts("todayilearned")
 
 
 def _mildly_interesting() -> list:
-    """r/mildlyinteresting top of week — curious observations."""
     return _reddit_top_facts("mildlyinteresting")
 
 
 def _showerthoughts() -> list:
-    """r/Showerthoughts top of week — thought-provoking one-liners, great for music vibes."""
     return _reddit_top_facts("Showerthoughts")
 
 
 def _interesting_facts() -> list:
-    """r/Damnthatsinteresting top of week — wild, mind-blowing facts."""
     return _reddit_top_facts("Damnthatsinteresting")
 
 
 def _life_pro_tips() -> list:
-    """r/LifeProTips top of week — useful tips that make people think."""
     return _reddit_top_facts("LifeProTips", strip_prefix="LPT: ")
+
+
+def _unpopular_opinion() -> list:
+    return _reddit_top_facts("unpopularopinion")
+
+
+def _explain_like_five() -> list:
+    return _reddit_top_facts("explainlikeimfive")
+
+
+def _get_motivated() -> list:
+    return _reddit_top_facts("GetMotivated")
+
+
+def _no_stupid_questions() -> list:
+    return _reddit_top_facts("NoStupidQuestions")
+
+
+def _ysk() -> list:
+    return _reddit_top_facts("YouShouldKnow", strip_prefix="YSK: ")
 
 
 def _useless_fact_api() -> list:

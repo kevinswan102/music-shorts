@@ -554,11 +554,11 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     # End-card CTA — fades in for the last 3 seconds
     import hashlib
     cta_options = [
-        "subscribe for more",
-        "more on the channel",
-        "new music daily",
-        "subscribe",
-        "new drops every day",
+        "subscribe for more beats",
+        "new beats every day",
+        "follow for daily drops",
+        "subscribe for daily music",
+        "more beats on the channel",
     ]
     cta_seed = int(hashlib.md5(track_name.encode()).hexdigest()[:8], 16)
     cta_text = _escape(cta_options[cta_seed % len(cta_options)])
@@ -625,11 +625,11 @@ def _burn_cta_only(video_path: str, track_name: str, output_path: str, total_dur
     font_param = f"fontfile={font}:" if font else ""
 
     cta_options = [
-        "subscribe for more",
-        "more on the channel",
-        "new music daily",
-        "subscribe",
-        "new drops every day",
+        "subscribe for more beats",
+        "new beats every day",
+        "follow for daily drops",
+        "subscribe for daily music",
+        "more beats on the channel",
     ]
     cta_seed = int(hashlib.md5(track_name.encode()).hexdigest()[:8], 16)
     cta_text = cta_options[cta_seed % len(cta_options)].replace("'", "'\\''")
