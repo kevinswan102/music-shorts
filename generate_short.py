@@ -636,6 +636,7 @@ def render_and_upload_short(audio_path: str, analysis: dict,
         bpm=bpm,
         overlay_max_lines=overlay_max_lines,
         skip_text_overlay=skip_text,
+        overlay_mode=overlay_mode,
     )
     if not final_video:
         logger.error(f"Render failed for short {short_num}. Skipping.")

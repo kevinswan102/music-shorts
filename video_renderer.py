@@ -425,7 +425,8 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
                       output_path: str, total_duration: float = 30.0,
                       poem_lines: list = None, bpm: float = 0,
                       poem_sets: list = None,
-                      overlay_max_lines: int = None) -> str:
+                      overlay_max_lines: int = None,
+                      overlay_mode: str = "") -> str:
     """
     Burn text overlays onto the video using ffmpeg drawtext.
     - Interesting text appears early and stays readable.
@@ -551,15 +552,31 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
         f"x=(w-text_w)/2:y=h-255"
     )
 
-    # End-card CTA — fades in for the last 3 seconds
+    # End-card CTA — fades in for the last 3 seconds, matches overlay content
     import hashlib
-    cta_options = [
-        "subscribe for more beats",
-        "new beats every day",
-        "follow for daily drops",
-        "subscribe for daily music",
-        "more beats on the channel",
-    ]
+    _cta_by_mode = {
+        "fact": [
+            "subscribe for more facts like this",
+            "follow for daily facts & beats",
+            "more facts every day",
+        ],
+        "reddit": [
+            "subscribe for more like this",
+            "follow for daily posts & beats",
+            "more every day — subscribe",
+        ],
+        "protip": [
+            "subscribe for more tips like this",
+            "follow for daily tips & beats",
+            "more tips every day",
+        ],
+        "none": [
+            "subscribe for more beats",
+            "new beats every day",
+            "follow for daily drops",
+        ],
+    }
+    cta_options = _cta_by_mode.get(overlay_mode, _cta_by_mode["none"])
     cta_seed = int(hashlib.md5(track_name.encode()).hexdigest()[:8], 16)
     cta_text = _escape(cta_options[cta_seed % len(cta_options)])
     cta_appear = max(0, total_duration - 3.5)
@@ -618,19 +635,35 @@ def mux_audio_video(video_path: str, audio_path: str,
     return output_path
 
 
-def _burn_cta_only(video_path: str, track_name: str, output_path: str, total_duration: float) -> str:
+def _burn_cta_only(video_path: str, track_name: str, output_path: str, total_duration: float, overlay_mode: str = "") -> str:
     """Burn just the subscribe CTA at the end — used for no-text-overlay Shorts."""
     import hashlib
     font = _find_font()
     font_param = f"fontfile={font}:" if font else ""
 
-    cta_options = [
-        "subscribe for more beats",
-        "new beats every day",
-        "follow for daily drops",
-        "subscribe for daily music",
-        "more beats on the channel",
-    ]
+    _cta_by_mode = {
+        "fact": [
+            "subscribe for more facts like this",
+            "follow for daily facts & beats",
+            "more facts every day",
+        ],
+        "reddit": [
+            "subscribe for more like this",
+            "follow for daily posts & beats",
+            "more every day — subscribe",
+        ],
+        "protip": [
+            "subscribe for more tips like this",
+            "follow for daily tips & beats",
+            "more tips every day",
+        ],
+        "none": [
+            "subscribe for more beats",
+            "new beats every day",
+            "follow for daily drops",
+        ],
+    }
+    cta_options = _cta_by_mode.get(overlay_mode, _cta_by_mode["none"])
     cta_seed = int(hashlib.md5(track_name.encode()).hexdigest()[:8], 16)
     cta_text = cta_options[cta_seed % len(cta_options)].replace("'", "'\\''")
     cta_appear = max(0, total_duration - 3.5)
@@ -669,7 +702,8 @@ def render_short(audio_segment_path: str,
                   poem_sets: list = None,
                   overlay_max_lines: int = None,
                   skip_text_overlay: bool = False,
-                  skip_cta: bool = False) -> Optional[str]:
+                  skip_cta: bool = False,
+                  overlay_mode: str = "") -> Optional[str]:
     """
     Top-level render function:
     1. Cut footage to beat intervals with color grading
@@ -708,7 +742,7 @@ def render_short(audio_segment_path: str,
         if not skip_cta:
             text_path = os.path.join(output_dir, f"cta_{ts}.mp4")
             try:
-                _burn_cta_only(concat_path, track_name, text_path, total_dur)
+                _burn_cta_only(concat_path, track_name, text_path, total_dur, overlay_mode=overlay_mode)
             except subprocess.CalledProcessError as e:
                 logger.error(f"CTA overlay failed: {e}")
                 text_path = concat_path
@@ -719,7 +753,8 @@ def render_short(audio_segment_path: str,
         try:
             add_text_overlay(concat_path, track_name, artist, text_path,
                              total_duration=total_dur, poem_lines=poem_lines, bpm=bpm,
-                             poem_sets=poem_sets, overlay_max_lines=overlay_max_lines)
+                             poem_sets=poem_sets, overlay_max_lines=overlay_max_lines,
+                             overlay_mode=overlay_mode)
         except subprocess.CalledProcessError as e:
             logger.error(f"Text overlay failed: {e}")
             text_path = concat_path
