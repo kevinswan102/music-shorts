@@ -1,10 +1,7 @@
 name: Stream Stardrift Live
 
 on:
-  schedule:
-    # Keep a restart queued. Concurrency prevents multiple RTMP streams at once.
-    - cron: '0 * * * *'
-  workflow_dispatch:  # Manual trigger for testing
+  workflow_dispatch:  # Manual trigger only — schedule disabled to save Actions minutes
 
 concurrency:
   group: stardrift-livestream

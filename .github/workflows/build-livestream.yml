@@ -1,10 +1,7 @@
 name: Build Livestream Video
 
 on:
-  schedule:
-    # Rebuild every 3 days (Mon/Thu/Sun) at 4am UTC so new tracks rotate faster
-    - cron: '0 4 * * 0,1,4'
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:  # Manual trigger only — schedule disabled to save Actions minutes
 
 permissions:
   contents: write  # Needed to upload to GitHub Release
