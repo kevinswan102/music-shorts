@@ -475,8 +475,8 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
     else:
         bar_dur = 4.0
 
-    poem_y_start = 300  # high enough to hit before the thumb scrolls
-    line_spacing = 105  # enough room for five lines without cutting off
+    poem_y_start = 700  # just above center — natural eye level on phone
+    line_spacing = 105
 
     for set_idx, lines in enumerate(all_sets):
         # Time window this set is visible
