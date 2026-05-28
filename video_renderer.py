@@ -736,38 +736,38 @@ def render_short(audio_segment_path: str,
         logger.error(f"Concat failed: {e}")
         return None
 
-    # Step 3: Text overlay (skip for livestream — clean visuals only)
+    # Step 3: Mux with audio FIRST (loop raw footage if shorter than audio,
+    # before text is burned in — prevents text from appearing twice on loop)
     total_dur = beat_intervals[-1][1] if beat_intervals else 30.0
+    muxed_path = os.path.join(output_dir, f"muxed_{ts}.mp4")
+    try:
+        mux_audio_video(concat_path, audio_segment_path, muxed_path,
+                        total_duration=total_dur)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Audio mux failed: {e}")
+        return None
+
+    # Step 4: Text overlay on the full-duration muxed video
+    final_name = f"music_short_{ts}.mp4"
+    final_path = os.path.join(output_dir, final_name)
     if skip_text_overlay:
         if not skip_cta:
-            text_path = os.path.join(output_dir, f"cta_{ts}.mp4")
             try:
-                _burn_cta_only(concat_path, track_name, text_path, total_dur, overlay_mode=overlay_mode)
+                _burn_cta_only(muxed_path, track_name, final_path, total_dur, overlay_mode=overlay_mode)
             except subprocess.CalledProcessError as e:
                 logger.error(f"CTA overlay failed: {e}")
-                text_path = concat_path
+                os.rename(muxed_path, final_path)
         else:
-            text_path = concat_path
+            os.rename(muxed_path, final_path)
     else:
-        text_path = os.path.join(output_dir, f"text_{ts}.mp4")
         try:
-            add_text_overlay(concat_path, track_name, artist, text_path,
+            add_text_overlay(muxed_path, track_name, artist, final_path,
                              total_duration=total_dur, poem_lines=poem_lines, bpm=bpm,
                              poem_sets=poem_sets, overlay_max_lines=overlay_max_lines,
                              overlay_mode=overlay_mode)
         except subprocess.CalledProcessError as e:
             logger.error(f"Text overlay failed: {e}")
-            text_path = concat_path
-
-    # Step 4: Mux with audio
-    final_name = f"music_short_{ts}.mp4"
-    final_path = os.path.join(output_dir, final_name)
-    try:
-        mux_audio_video(text_path, audio_segment_path, final_path,
-                        total_duration=total_dur)
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Audio mux failed: {e}")
-        return None
+            os.rename(muxed_path, final_path)
 
     # Step 5: Cleanup intermediates
     for path in segments + [concat_path]:
@@ -775,11 +775,10 @@ def render_short(audio_segment_path: str,
             os.unlink(path)
         except OSError:
             pass
-    if text_path != concat_path:
-        try:
-            os.unlink(text_path)
-        except OSError:
-            pass
+    try:
+        os.unlink(muxed_path)
+    except OSError:
+        pass
 
     gc.collect()
     logger.info(f"Final Short rendered: {final_path}")
