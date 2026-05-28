@@ -187,6 +187,12 @@ PEXELS_SUBJECT_KEYWORDS = [
     "woman walking through flowers",
     "woman laughing golden hour",
     "woman rain umbrella city",
+    "attractive woman walking slow motion",
+    "attractive woman dancing",
+    "attractive woman city night",
+    "attractive woman golden hour portrait",
+    "attractive woman pool summer",
+    "attractive woman fashion street",
 ]
 
 PEXELS_MOOD_SUBJECT_KEYWORDS = {
