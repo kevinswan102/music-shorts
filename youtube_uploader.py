@@ -238,7 +238,7 @@ class YouTubeUploader:
             return {'success': False, 'error': str(e)}
 
     def _post_early_comment(self, video_id: str) -> None:
-        """Post a pinned comment with music links — non-fatal.
+        """Post a pinned comment pushing beat store + streaming links — non-fatal.
         Requires youtube.force-ssl scope. If the refresh token was generated
         without it, re-run: python3 youtube_auth_now.py
         """
@@ -248,24 +248,31 @@ class YouTubeUploader:
         spotify = os.getenv('SPOTIFY_URL', '')
         partner_link = os.getenv('PARTNER_LINK_1', '')
 
-        lines = []
-        if hyperfollow:
-            lines.append(f"stream the full track: {hyperfollow}")
-        elif spotify:
-            lines.append(f"stream the full track: {spotify}")
-        if beatstars:
-            lines.append(f"want this beat? {beatstars}")
-        if instagram:
-            lines.append(f"ig: {instagram}")
-        if partner_link:
-            lines.append(partner_link)
+        blocks = []
 
-        if not lines:
+        if beatstars:
+            blocks.append(
+                f"FREE beats + buy 2 get 1 free sale on the beat store:\n{beatstars}"
+            )
+
+        stream_lines = []
+        if hyperfollow:
+            stream_lines.append(f"All platforms: {hyperfollow}")
+        elif spotify:
+            stream_lines.append(f"Spotify: {spotify}")
+        if stream_lines:
+            blocks.append("Stream the full track:\n" + "\n".join(stream_lines))
+
+        if instagram:
+            blocks.append(f"DM for collabs / custom beats: {instagram}")
+        if partner_link:
+            blocks.append(partner_link)
+
+        if not blocks:
             return
 
-        text = "\n".join(lines)
+        text = "\n\n".join(blocks)
         try:
-            # Small delay — YouTube needs a moment after upload before comments work
             import time
             time.sleep(5)
 
@@ -283,8 +290,8 @@ class YouTubeUploader:
         except HttpError as e:
             if e.resp.status == 403:
                 logger.warning(
-                    f"Comment 403 — refresh token likely missing youtube.force-ssl scope. "
-                    f"Re-run: python3 youtube_auth_now.py and update YOUTUBE_REFRESH_TOKEN secret."
+                    "Comment 403 — refresh token likely missing youtube.force-ssl scope. "
+                    "Re-run: python3 youtube_auth_now.py and update YOUTUBE_REFRESH_TOKEN secret."
                 )
             else:
                 logger.warning(f"Comment failed (non-fatal): {e}")
@@ -334,16 +341,21 @@ class YouTubeUploader:
         apple_music = os.getenv('APPLE_MUSIC_URL', '')
         partner_link = os.getenv('PARTNER_LINK_1', '')
 
-        title = self._generate_title(track_name, artist, genre)
+        title = video_data.get('title') or self._generate_title(track_name, artist, genre)
         title = title[:100]
 
-        # Build description — personal tone, push streaming + beats
+        # Build description — push beat store first, then streaming
         desc_parts = []
         if llm_description:
             desc_parts.append(llm_description)
 
+        # Beat store CTA — top priority
+        if beatstars:
+            desc_parts.append(
+                f"FREE beats + buy 2 get 1 free sale:\n{beatstars}"
+            )
+
         # Stream CTA
-        desc_parts.append(f"Stream \"{track_name}\" now:")
         stream_lines = []
         if spotify:
             stream_lines.append(f"Spotify: {spotify}")
@@ -352,19 +364,15 @@ class YouTubeUploader:
         if hyperfollow:
             stream_lines.append(f"All platforms: {hyperfollow}")
         if stream_lines:
-            desc_parts.append("\n".join(stream_lines))
-
-        # Beat store CTA
-        if beatstars:
-            desc_parts.append(f"Want this beat? Browse & buy beats: {beatstars}")
+            desc_parts.append(f"Stream \"{track_name}\":\n" + "\n".join(stream_lines))
 
         if instagram:
-            desc_parts.append(f"ig / tiktok: {instagram}")
+            desc_parts.append(f"DM for collabs / custom beats: {instagram}")
 
         if partner_link:
             desc_parts.append(partner_link)
 
-        desc_parts.append("#music #shorts #beats")
+        desc_parts.append("#music #shorts #beats #freebeats #typebeat #producer")
 
         description = "\n\n".join(desc_parts)
 

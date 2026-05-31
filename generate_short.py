@@ -164,6 +164,8 @@ def generate_overlay_text(track_name: str = "", genre: str = "",
     mode = _pick_overlay_mode(short_num=short_num)
     if mode == "none":
         return []
+    if mode == "beatstore":
+        return _beat_store_overlay(max_lines=max_lines)
     if mode == "protip":
         lines = _pro_tip_overlay(max_lines=max_lines)
         if lines:
@@ -210,7 +212,7 @@ def _pick_overlay_mode(short_num: int = 1) -> str:
     if env_modes:
         modes = [m.strip().lower() for m in env_modes.split(",") if m.strip()]
     else:
-        modes = ["reddit", "none", "fact", "none"]
+        modes = ["protip", "none", "fact", "beatstore"]
 
     day_offset = datetime.now(timezone.utc).timetuple().tm_yday
     idx = (day_offset + max(0, short_num - 1)) % len(modes)
@@ -228,7 +230,7 @@ def _pick_overlay_mode(short_num: int = 1) -> str:
         "notext": "none",
     }
     mode = aliases.get(mode, mode)
-    return mode if mode in {"protip", "reddit", "fact", "none"} else "reddit"
+    return mode if mode in {"protip", "reddit", "fact", "none", "beatstore"} else "fact"
 
 
 def _overlay_max_lines_for_duration(duration: float) -> int:
@@ -250,7 +252,7 @@ def _pro_tip_overlay(max_lines: int = _OVERLAY_MAX_LINES) -> list:
 
 
 def _fact_overlay(max_lines: int = _OVERLAY_MAX_LINES) -> list:
-    sources = [_interesting_facts, _til_reddit, _useless_fact_api, _numbers_fact_api]
+    sources = [_useless_fact_api, _numbers_fact_api]
     import random
     random.shuffle(sources)
     for source in sources:
@@ -691,6 +693,161 @@ def render_and_upload_short(audio_path: str, analysis: dict,
     return success
 
 
+def _beat_store_overlay(max_lines: int = 5) -> list:
+    """Overlay text for the beat store promo short."""
+    import random
+    promos = [
+        [
+            "ARTISTS:",
+            "need a beat?",
+            "",
+            "free downloads +",
+            "buy 2 get 1 free",
+        ],
+        [
+            "FREE BEATS",
+            "mixed & mastered",
+            "ready to record",
+            "",
+            "link in comments",
+        ],
+        [
+            "rappers /",
+            "singers:",
+            "free beats in",
+            "the store now",
+            "link below",
+        ],
+        [
+            "beat store sale",
+            "buy 2 get 1 free",
+            "",
+            "free beats too",
+            "link in comments",
+        ],
+        [
+            "looking for",
+            "your next beat?",
+            "",
+            "free downloads",
+            "link in comments",
+        ],
+        [
+            "new beats weekly",
+            "all genres",
+            "",
+            "free + sale",
+            "link below",
+        ],
+    ]
+    lines = random.choice(promos)
+    return lines[:max_lines]
+
+
+def render_and_upload_promo_short(audio_path: str, analysis: dict,
+                                  song_title: str, genre: str,
+                                  bpm: float, energy: str, brightness: str,
+                                  texture: str, publish_at: str = None) -> bool:
+    """Render a beat store promo short using the same track but with promo overlay."""
+    logger.info("--- Beat store promo short ---")
+
+    windows = analysis.get("all_windows", [(analysis["best_start"], analysis["best_end"])])
+    ws, we = windows[0]
+    segment_path = "/tmp/audio_segment_promo.wav"
+    extract_audio_segment(audio_path, ws, we, segment_path)
+    segment_duration = we - ws
+
+    overlay_max_lines = _overlay_max_lines_for_duration(segment_duration)
+    promo_lines = _beat_store_overlay(max_lines=overlay_max_lines)
+
+    beat_intervals = get_beat_intervals(
+        [b for b in analysis["all_beat_times"] if ws <= b <= we],
+        start_offset=ws,
+        segment_duration=segment_duration,
+        min_interval=1.5, max_interval=3.0, skip_ratio=0.60,
+    )
+
+    footage_paths = fetch_footage(song_title, bpm=bpm, energy=energy,
+                                   brightness=brightness, texture=texture,
+                                   genre_override=genre)
+    if not footage_paths:
+        logger.error("No footage for promo short. Skipping.")
+        return False
+
+    final_video = render_short(
+        audio_segment_path=segment_path,
+        footage_paths=footage_paths,
+        beat_intervals=beat_intervals,
+        track_name=song_title,
+        artist=ARTIST_NAME,
+        genre=genre,
+        poem_lines=promo_lines,
+        bpm=bpm,
+        overlay_max_lines=overlay_max_lines,
+        skip_text_overlay=False,
+    )
+    if not final_video:
+        logger.error("Promo short render failed.")
+        return False
+
+    beatstars = os.getenv("BEATSTARS_URL", "")
+    desc = (
+        f"Looking for beats? Free beats available + buy 2 get 1 free sale.\n"
+        f"All beats are mixed, mastered, and ready to record over.\n\n"
+    )
+    if beatstars:
+        desc += f"Browse the full beat store: {beatstars}\n\n"
+    desc += (
+        "DM for custom beats or collabs.\n\n"
+        "#freebeats #typebeat #beats #producer #beatstore #shorts #music "
+        "#rapbeats #hiphopbeats #newbeats #beatsforsale #freetype"
+    )
+
+    from youtube_uploader import YouTubeUploader
+    uploader = YouTubeUploader()
+
+    import random
+    titles = [
+        "need a beat? free downloads + buy 2 get 1 free #shorts #freebeats",
+        "artists looking for beats? free beats + sale #shorts #typebeat",
+        "free beats for artists - mixed and mastered #shorts #freebeats",
+        "beat store sale - buy 2 get 1 free right now #shorts #beats",
+        "rappers and singers need beats? link below #shorts #producer",
+        "free beats available now for your next track #shorts #typebeat",
+    ]
+    random.seed(datetime.now(timezone.utc).timetuple().tm_yday)
+    title = random.choice(titles)
+
+    upload_payload = {
+        "video_path": final_video,
+        "title": title,
+        "track_name": title.split("#")[0].strip(),
+        "artist": ARTIST_NAME,
+        "genre": genre,
+        "description_text": desc,
+    }
+    if publish_at:
+        upload_payload["publish_at"] = publish_at
+
+    result = uploader.upload_video(upload_payload)
+    success = False
+    if result.get("success"):
+        logger.info(f"Promo short uploaded: {result.get('video_url')}")
+        success = True
+    elif result.get("mock_upload"):
+        logger.info(f"Promo short mock upload: {result.get('would_upload', {}).get('title', '')}")
+    else:
+        logger.error(f"Promo short upload failed: {result.get('error')}")
+
+    for path in [segment_path, final_video] + footage_paths:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    gc.collect()
+    return success
+
+
 def main():
     logger.info("=" * 60)
     logger.info(f"MUSIC SHORTS GENERATOR (NUM_SHORTS={NUM_SHORTS})")
@@ -757,6 +914,19 @@ def main():
             publish_at=publish_at,
         )
         if ok:
+            successes += 1
+
+    # Step 6b: Beat store promo short (daily)
+    promo_enabled = os.getenv("BEAT_STORE_PROMO", "true").lower() in {"1", "true", "yes", "on"}
+    if promo_enabled and os.getenv("BEATSTARS_URL", ""):
+        logger.info("Step 6b: Rendering beat store promo short...")
+        promo_publish = publish_schedule[-1] if publish_schedule else None
+        promo_ok = render_and_upload_promo_short(
+            audio_path, analysis, song_title, genre,
+            bpm, energy, brightness, texture,
+            publish_at=promo_publish,
+        )
+        if promo_ok:
             successes += 1
 
     # Step 7: Update archive — only if at least one short uploaded successfully.
