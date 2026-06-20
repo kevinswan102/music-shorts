@@ -698,46 +698,46 @@ def _beat_store_overlay(max_lines: int = 5) -> list:
     import random
     promos = [
         [
-            "ARTISTS:",
-            "need a beat?",
+            "ARTISTS: need a beat?",
+            "free downloads available",
             "",
-            "free downloads +",
-            "buy 2 get 1 free",
+            "click my profile picture below",
+            "and grab beats from the link in my bio",
         ],
         [
             "FREE BEATS",
-            "mixed & mastered",
-            "ready to record",
+            "mixed, mastered, ready to record",
             "",
-            "link in comments",
+            "click my profile picture below",
+            "and get free downloads from my bio",
         ],
         [
-            "rappers /",
-            "singers:",
-            "free beats in",
-            "the store now",
-            "link below",
+            "rappers & singers:",
+            "free beats available now",
+            "",
+            "click my profile picture below",
+            "and check the link in my bio",
         ],
         [
             "beat store sale",
             "buy 2 get 1 free",
             "",
-            "free beats too",
-            "link in comments",
+            "click my profile picture below",
+            "and grab beats from the link in my bio",
         ],
         [
-            "looking for",
-            "your next beat?",
+            "looking for your next beat?",
+            "free downloads available",
             "",
-            "free downloads",
-            "link in comments",
+            "click my profile picture below",
+            "and get free beats from my bio",
         ],
         [
-            "new beats weekly",
+            "new beats every week",
             "all genres",
             "",
-            "free + sale",
-            "link below",
+            "click my profile picture below",
+            "and download free beats from my bio",
         ],
     ]
     lines = random.choice(promos)
@@ -790,14 +790,10 @@ def render_and_upload_promo_short(audio_path: str, analysis: dict,
         logger.error("Promo short render failed.")
         return False
 
-    beatstars = os.getenv("BEATSTARS_URL", "")
     desc = (
-        f"Looking for beats? Free beats available + buy 2 get 1 free sale.\n"
-        f"All beats are mixed, mastered, and ready to record over.\n\n"
-    )
-    if beatstars:
-        desc += f"Browse the full beat store: {beatstars}\n\n"
-    desc += (
+        "Looking for beats? Free beats available + buy 2 get 1 free sale.\n"
+        "All beats are mixed, mastered, and ready to record over.\n\n"
+        "Click my profile picture below and grab free downloads from the BeatStars link in my bio.\n\n"
         "DM for custom beats or collabs.\n\n"
         "#freebeats #typebeat #beats #producer #beatstore #shorts #music "
         "#rapbeats #hiphopbeats #newbeats #beatsforsale #freetype"
@@ -812,7 +808,7 @@ def render_and_upload_promo_short(audio_path: str, analysis: dict,
         "artists looking for beats? free beats + sale #shorts #typebeat",
         "free beats for artists - mixed and mastered #shorts #freebeats",
         "beat store sale - buy 2 get 1 free right now #shorts #beats",
-        "rappers and singers need beats? link below #shorts #producer",
+        "rappers and singers need beats? link in bio #shorts #producer",
         "free beats available now for your next track #shorts #typebeat",
     ]
     random.seed(datetime.now(timezone.utc).timetuple().tm_yday)

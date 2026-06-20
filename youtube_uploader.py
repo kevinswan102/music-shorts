@@ -250,10 +250,9 @@ class YouTubeUploader:
 
         blocks = []
 
-        if beatstars:
-            blocks.append(
-                f"FREE beats + buy 2 get 1 free sale on the beat store:\n{beatstars}"
-            )
+        blocks.append(
+            "Click my profile picture below and grab free beat downloads from the link in my bio!"
+        )
 
         stream_lines = []
         if hyperfollow:
@@ -350,10 +349,9 @@ class YouTubeUploader:
             desc_parts.append(llm_description)
 
         # Beat store CTA — top priority
-        if beatstars:
-            desc_parts.append(
-                f"FREE beats + buy 2 get 1 free sale:\n{beatstars}"
-            )
+        desc_parts.append(
+            "Click my profile picture below and grab free beat downloads from the link in my bio!"
+        )
 
         # Stream CTA
         stream_lines = []
