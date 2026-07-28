@@ -412,6 +412,17 @@ def _wrap_overlay_text(text: str, max_chars: int = 28) -> list:
     return lines or [text]
 
 
+# Shorts overlay pacing/layout (2026-07-28). The previous values (22-char wrap,
+# 0.8s first line, 2.2s per line) meant a normal tip broke into 5+ fragments and
+# did not finish revealing until ~9.6s of a 30s Short — the payoff landed after
+# most viewers had already decided. Wider wrap = fewer lines; faster step = the
+# whole thought is readable early.
+_OVERLAY_WRAP_CHARS = 28        # chars per rendered line before wrapping
+_OVERLAY_FIRST_LINE_DELAY = 0.4  # seconds before the first line appears
+_OVERLAY_LINE_STEP = 1.1         # max seconds between line reveals
+_OVERLAY_REVEAL_DEADLINE = 6.0   # all lines must be on screen by this timestamp
+
+
 def _fit_font_size(text: str, base_size: int, min_size: int,
                    max_chars: int) -> int:
     """Crude drawtext fit guard for long titles in a 1080px Shorts frame."""
@@ -489,21 +500,41 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
         if slot_start >= total_duration - 2.0:
             break  # past end of video
 
-        # Expand each source line into word-wrapped sub-lines
-        # Use same max_chars as generator (22) to avoid overflow
+        # Expand each source line into word-wrapped sub-lines.
+        # 28 chars, not 22 (2026-07-28): at 22 a normal tip shattered into 5+
+        # ragged fragments, which both looked broken and — because each line
+        # waits its turn below — pushed the payoff past the retention cliff.
         wrapped_lines = []
         for line in lines:
-            wrapped_lines.extend(_wrap_overlay_text(line, max_chars=22))
+            wrapped_lines.extend(_wrap_overlay_text(line, max_chars=_OVERLAY_WRAP_CHARS))
         if is_short_mode:
             wrapped_lines = wrapped_lines[:overlay_max_lines]
 
         n = len(wrapped_lines)
+        # One size for the whole block. _fit_font_size used to be called per
+        # line, so a short line rendered large next to a long one shrunk small —
+        # the "text looks weird" complaint. Size to the longest line instead.
+        if is_short_mode and wrapped_lines:
+            block_font_size = min(
+                _fit_font_size(sl, base_size=64, min_size=44, max_chars=24)
+                for sl in wrapped_lines
+            )
+        else:
+            block_font_size = None
+
+        # Reveal cadence for Shorts. Was 0.8 + i*2.2, so a 5-line tip did not
+        # finish until ~9.6s — a third of a 30s Short spent waiting for the
+        # punchline. Reveal faster, and compress further when there are many
+        # lines so the whole block is up well before the viewer bails.
+        if is_short_mode:
+            span = max(0.0, min(slot_end - 1.0, _OVERLAY_REVEAL_DEADLINE) - slot_start
+                       - _OVERLAY_FIRST_LINE_DELAY)
+            step = min(_OVERLAY_LINE_STEP, span / max(n - 1, 1)) if n > 1 else 0.0
+
         for i, sub_line in enumerate(wrapped_lines):
             safe_line = _escape(sub_line)
-            # Shorts: stagger lines so viewer can read each one as it appears.
-            # ~2.2s between lines — slow reveal that matches the music vibe.
             if is_short_mode:
-                appear_at = slot_start + 0.8 + i * 2.2
+                appear_at = slot_start + _OVERLAY_FIRST_LINE_DELAY + i * step
             else:
                 appear_at = slot_start + (1 + i) * bar_dur
                 if appear_at > slot_end - 1.0:
@@ -511,10 +542,8 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
                 appear_at = max(slot_start + 0.5, appear_at)
             disappear_at = slot_end
             y_pos = poem_y_start + i * line_spacing
-            base_size = 64
-            min_size = 44
-            font_size = _fit_font_size(sub_line, base_size=base_size,
-                                       min_size=min_size, max_chars=24)
+            font_size = block_font_size if block_font_size else _fit_font_size(
+                sub_line, base_size=64, min_size=44, max_chars=24)
             filters.append(
                 f"drawtext={font_param}text='{safe_line}':"
                 f"fontsize={font_size}:fontcolor=white:"

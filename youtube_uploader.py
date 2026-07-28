@@ -251,7 +251,7 @@ class YouTubeUploader:
         blocks = []
 
         blocks.append(
-            "Click my profile picture below and grab free beat downloads from the link in my bio!"
+            "Grab free beat downloads from the BeatStars link in my channel bio!"
         )
 
         stream_lines = []
@@ -350,7 +350,7 @@ class YouTubeUploader:
 
         # Beat store CTA — top priority
         desc_parts.append(
-            "Click my profile picture below and grab free beat downloads from the link in my bio!"
+            "Grab free beat downloads from the BeatStars link in my channel bio!"
         )
 
         # Stream CTA

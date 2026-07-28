@@ -29,6 +29,7 @@ from music_source import list_channel_videos, pick_next_track, download_audio, s
 from beat_analyzer import analyze_track, extract_audio_segment, get_beat_intervals
 from footage_fetcher import fetch_footage
 from video_renderer import render_short
+import overlay_content
 
 
 import re
@@ -212,7 +213,11 @@ def _pick_overlay_mode(short_num: int = 1) -> str:
     if env_modes:
         modes = [m.strip().lower() for m in env_modes.split(",") if m.strip()]
     else:
-        modes = ["protip", "none", "fact", "beatstore"]
+        # "reddit" is back in the rotation as of 2026-07-28. It was dropped
+        # when live Reddit fetches started returning nothing; it now serves
+        # from the local overlay pool (overlay_content.py) and never needs
+        # the network, so it is a real fifth format again.
+        modes = ["protip", "none", "fact", "beatstore", "reddit"]
 
     day_offset = datetime.now(timezone.utc).timetuple().tm_yday
     idx = (day_offset + max(0, short_num - 1)) % len(modes)
@@ -245,56 +250,86 @@ def _with_label(label: str, lines: list, max_lines: int = _OVERLAY_MAX_LINES) ->
 
 
 def _pro_tip_overlay(max_lines: int = _OVERLAY_MAX_LINES) -> list:
-    lines = _life_pro_tips()
+    # Pool first (2026-07-28): the live LifeProTips call returns nothing from
+    # CI most days, and the six hardcoded tips it fell through to were showing
+    # up repeatedly on a 4x/day channel.
+    lines = _pool_overlay(topic="music", max_lines=max_lines)
     if lines:
-        return _with_label("PRO TIP", lines[:max(1, max_lines - 1)], max_lines=max_lines)
+        return lines
     return _fallback_pro_tips(max_lines=max_lines)
 
 
 def _fact_overlay(max_lines: int = _OVERLAY_MAX_LINES) -> list:
-    sources = [_useless_fact_api, _numbers_fact_api]
-    import random
-    random.shuffle(sources)
-    for source in sources:
-        try:
-            lines = source()
-            if lines:
-                return _with_label("DID YOU KNOW?", lines[:max(1, max_lines - 1)], max_lines=max_lines)
-        except Exception as e:
-            logger.warning(f"Fact overlay source {source.__name__} failed: {e}")
+    lines = _pool_overlay(topic="general", max_lines=max_lines)
+    if lines:
+        return lines
     return _fallback_facts(max_lines=max_lines)
+
+
+def _pool_overlay(topic: str = "", max_lines: int = _OVERLAY_MAX_LINES) -> list:
+    """
+    Serve one line from the local overlay pool (2026-07-28).
+
+    The pool is cache-only by design: no OAuth, no live call in the render
+    path. Live sources may top it up out of band, but a render never depends
+    on one answering.
+    """
+    try:
+        entry = overlay_content.pick(topic=topic)
+    except Exception as exc:
+        logger.warning("Overlay pool unavailable: %s", exc)
+        return []
+    if not entry.get("text"):
+        return []
+    label = entry.get("label", "")
+    if label:
+        lines = _fit_overlay_text(entry["text"], max_lines=max(1, max_lines - 1))
+        return _with_label(label, lines, max_lines=max_lines) if lines else []
+    return _fit_overlay_text(entry["text"], max_lines=max_lines)
 
 
 def _random_reddit_overlay(max_lines: int = _OVERLAY_MAX_LINES) -> list:
-    """Original Reddit/fact overlay, kept as one recurring content format."""
-    sources = [
-        _showerthoughts,
-        _til_reddit,
-        _mildly_interesting,
-        _interesting_facts,
-        _life_pro_tips,
-        _unpopular_opinion,
-        _explain_like_five,
-        _get_motivated,
-        _no_stupid_questions,
-        _ysk,
-        _useless_fact_api,
-        _numbers_fact_api,
-    ]
-    import random
-    random.shuffle(sources)
+    """Mixed music/general line from the pool — the old Reddit format's slot."""
+    return _pool_overlay(max_lines=max_lines) or _fallback_facts(max_lines=max_lines)
 
-    for source in sources:
+
+def refresh_overlay_pool() -> int:
+    """
+    Opportunistically top the pool up from public sources.
+
+    Called out of band (see ``--refresh-overlays``), never from a render.
+    Every source is best-effort: Reddit refuses unauthenticated traffic most
+    days, and that must cost a run nothing.
+    """
+    added = 0
+    for sub, prefix in overlay_content.MUSIC_SUBREDDITS:
+        try:
+            lines = _reddit_top_facts(sub, strip_prefix=prefix)
+            if lines:
+                added += overlay_content.add_lines(
+                    [" ".join(lines)], topic="music", label="PRODUCER TIP")
+        except Exception as exc:
+            logger.debug("Overlay refresh %s failed: %s", sub, exc)
+
+    general = [
+        (_life_pro_tips, "PRO TIP"),
+        (_til_reddit, "DID YOU KNOW?"),
+        (_ysk, "PRO TIP"),
+        (_interesting_facts, "DID YOU KNOW?"),
+        (_useless_fact_api, "DID YOU KNOW?"),
+        (_numbers_fact_api, "DID YOU KNOW?"),
+    ]
+    for source, label in general:
         try:
             lines = source()
             if lines:
-                fitted = _fit_overlay_text(" ".join(lines), max_lines=max_lines)
-                if fitted:
-                    return fitted
-        except Exception as e:
-            logger.warning(f"Overlay source {source.__name__} failed: {e}")
+                added += overlay_content.add_lines(
+                    [" ".join(lines)], topic="general", label=label)
+        except Exception as exc:
+            logger.debug("Overlay refresh %s failed: %s", source.__name__, exc)
 
-    return _fallback_facts(max_lines=max_lines)
+    logger.info("Overlay pool refresh added %d line(s)", added)
+    return added
 
 
 def _normalize_overlay_lines(lines: list, max_chars: int = _OVERLAY_MAX_CHARS,
@@ -696,48 +731,48 @@ def render_and_upload_short(audio_path: str, analysis: dict,
 def _beat_store_overlay(max_lines: int = 5) -> list:
     """Overlay text for the beat store promo short."""
     import random
+    # CTA points at the channel bio, not the profile picture (2026-07-28).
+    # "Click my profile picture" describes a gesture that does not exist on
+    # every surface Shorts plays on, so the instruction was dead copy for a
+    # chunk of viewers. The BeatStars link lives in the channel bio — say that.
     promos = [
         [
             "ARTISTS: need a beat?",
             "free downloads available",
             "",
-            "click my profile picture below",
-            "and grab beats from the link in my bio",
+            "BeatStars link in my channel bio",
         ],
         [
             "FREE BEATS",
             "mixed, mastered, ready to record",
             "",
-            "click my profile picture below",
-            "and get free downloads from my bio",
+            "grab them from the BeatStars link",
+            "in my channel bio",
         ],
         [
             "rappers & singers:",
             "free beats available now",
             "",
-            "click my profile picture below",
-            "and check the link in my bio",
+            "BeatStars link in my channel bio",
         ],
         [
             "beat store sale",
             "buy 2 get 1 free",
             "",
-            "click my profile picture below",
-            "and grab beats from the link in my bio",
+            "BeatStars link in my channel bio",
         ],
         [
             "looking for your next beat?",
             "free downloads available",
             "",
-            "click my profile picture below",
-            "and get free beats from my bio",
+            "check the BeatStars link",
+            "in my channel bio",
         ],
         [
             "new beats every week",
             "all genres",
             "",
-            "click my profile picture below",
-            "and download free beats from my bio",
+            "BeatStars link in my channel bio",
         ],
     ]
     lines = random.choice(promos)
@@ -793,7 +828,7 @@ def render_and_upload_promo_short(audio_path: str, analysis: dict,
     desc = (
         "Looking for beats? Free beats available + buy 2 get 1 free sale.\n"
         "All beats are mixed, mastered, and ready to record over.\n\n"
-        "Click my profile picture below and grab free downloads from the BeatStars link in my bio.\n\n"
+        "Grab free downloads from the BeatStars link in my channel bio.\n\n"
         "DM for custom beats or collabs.\n\n"
         "#freebeats #typebeat #beats #producer #beatstore #shorts #music "
         "#rapbeats #hiphopbeats #newbeats #beatsforsale #freetype"
@@ -946,4 +981,9 @@ def main():
 
 
 if __name__ == "__main__":
+    # Out-of-band pool top-up. Kept off the render path on purpose: a render
+    # must never wait on Reddit, which refuses unauthenticated traffic.
+    if "--refresh-overlays" in sys.argv:
+        refresh_overlay_pool()
+        sys.exit(0)
     main()

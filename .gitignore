@@ -13,3 +13,4 @@ youtube_token.pickle
 .claude/
 CLAUDE.md
 cookies.txt
+cache/
