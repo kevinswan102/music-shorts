@@ -29,6 +29,17 @@ def load_archive() -> set:
         return {line.strip() for line in f if line.strip()}
 
 
+def _oldest_archived(videos: List[Dict], available_ids: set) -> Optional[Dict]:
+    """Archived track (with audio) whose most recent archive entry is oldest."""
+    if not os.path.exists(ARCHIVE_FILE):
+        return None
+    with open(ARCHIVE_FILE, "r") as f:
+        order = [line.strip() for line in f if line.strip()]
+    last_pos = {vid: i for i, vid in enumerate(order)}
+    candidates = [v for v in videos if v["id"] in available_ids and v["id"] in last_pos]
+    return min(candidates, key=lambda v: last_pos[v["id"]]) if candidates else None
+
+
 def save_to_archive(video_id: str) -> None:
     """Append a video ID to archive.txt."""
     with open(ARCHIVE_FILE, "a") as f:
@@ -140,6 +151,13 @@ def pick_next_track(videos: List[Dict]) -> Optional[Dict]:
     # Log why nothing was found
     unprocessed = [v for v in videos if v["id"] not in archive]
     if not unprocessed:
+        # Catalog exhausted: recycle the track posted longest ago instead of
+        # going silent. save_to_archive re-appends it, so it rotates to the back.
+        if os.getenv("RECYCLE_TRACKS", "true").lower() in {"1", "true", "yes", "on"}:
+            recycled = _oldest_archived(videos, available_ids)
+            if recycled:
+                logger.info(f"All tracks processed; recycling oldest: {recycled['id']}")
+                return recycled
         logger.info("All tracks have been processed.")
     elif not available_ids:
         logger.warning("No audio files in GitHub Release. Run upload_tracks.py locally first.")

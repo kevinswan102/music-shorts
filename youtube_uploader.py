@@ -297,12 +297,13 @@ class YouTubeUploader:
         except Exception as e:
             logger.warning(f"Comment failed (non-fatal): {e}")
 
-    def _generate_title(self, track_name: str, artist: str, genre: str) -> str:
+    def _generate_title(self, track_name: str, artist: str, genre: str, upload_num: Optional[int] = None) -> str:
         """Pick a title format that feels natural, not templated."""
         import random
         from datetime import timezone
         day = datetime.now(timezone.utc).timetuple().tm_yday
-        upload_num = self.uploads_today
+        if upload_num is None:
+            upload_num = self.uploads_today
 
         formats = [
             f"{track_name} - {artist}",
@@ -340,7 +341,8 @@ class YouTubeUploader:
         apple_music = os.getenv('APPLE_MUSIC_URL', '')
         partner_link = os.getenv('PARTNER_LINK_1', '')
 
-        title = video_data.get('title') or self._generate_title(track_name, artist, genre)
+        title = video_data.get('title') or self._generate_title(
+            track_name, artist, genre, upload_num=video_data.get('short_num'))
         title = title[:100]
 
         # Build description — push beat store first, then streaming
