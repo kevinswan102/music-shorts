@@ -690,6 +690,7 @@ def render_and_upload_short(audio_path: str, analysis: dict,
         "artist": ARTIST_NAME,
         "genre": genre,
         "description_text": description_text,
+        "short_num": short_num,
     }
     if publish_at:
         upload_payload["publish_at"] = publish_at
@@ -752,12 +753,6 @@ def _beat_store_overlay(max_lines: int = 5) -> list:
         [
             "rappers & singers:",
             "free beats available now",
-            "",
-            "BeatStars link in my channel bio",
-        ],
-        [
-            "beat store sale",
-            "buy 2 get 1 free",
             "",
             "BeatStars link in my channel bio",
         ],
@@ -826,7 +821,7 @@ def render_and_upload_promo_short(audio_path: str, analysis: dict,
         return False
 
     desc = (
-        "Looking for beats? Free beats available + buy 2 get 1 free sale.\n"
+        "Looking for beats? Free beat downloads available.\n"
         "All beats are mixed, mastered, and ready to record over.\n\n"
         "Grab free downloads from the BeatStars link in my channel bio.\n\n"
         "DM for custom beats or collabs.\n\n"
@@ -839,10 +834,9 @@ def render_and_upload_promo_short(audio_path: str, analysis: dict,
 
     import random
     titles = [
-        "need a beat? free downloads + buy 2 get 1 free #shorts #freebeats",
-        "artists looking for beats? free beats + sale #shorts #typebeat",
+        "need a beat? free downloads in my bio #shorts #freebeats",
+        "artists looking for beats? free downloads #shorts #typebeat",
         "free beats for artists - mixed and mastered #shorts #freebeats",
-        "beat store sale - buy 2 get 1 free right now #shorts #beats",
         "rappers and singers need beats? link in bio #shorts #producer",
         "free beats available now for your next track #shorts #typebeat",
     ]
@@ -942,6 +936,7 @@ def main():
         logger.info("Uploading immediately (SCHEDULE_UPLOADS not enabled)")
 
     successes = 0
+    archived = False
     for i, (ws, we) in enumerate(windows):
         publish_at = publish_schedule[i] if i < len(publish_schedule) else None
         ok = render_and_upload_short(
@@ -952,9 +947,20 @@ def main():
         )
         if ok:
             successes += 1
+            if not archived:
+                # Archive as soon as one Short is live. A crash later in the run
+                # used to leave the track unarchived, so it was re-posted day
+                # after day (one track went up 12 times in July).
+                save_to_archive(track["id"])
+                archived = True
 
     # Step 6b: Beat store promo short (daily)
     promo_enabled = os.getenv("BEAT_STORE_PROMO", "true").lower() in {"1", "true", "yes", "on"}
+    # Weekly, not daily: promo Shorts had the lowest median views (26 vs 34)
+    # and a daily ad reads as spam. Default 6 = Sunday (UTC); -1 = every day.
+    promo_day = int(os.getenv("BEAT_STORE_PROMO_WEEKDAY", "6"))
+    if promo_day >= 0 and datetime.now(timezone.utc).weekday() != promo_day:
+        promo_enabled = False
     if promo_enabled and os.getenv("BEATSTARS_URL", ""):
         logger.info("Step 6b: Rendering beat store promo short...")
         promo_publish = publish_schedule[-1] if publish_schedule else None
@@ -971,7 +977,8 @@ def main():
     # the track list while posting nothing to YouTube.
     logger.info("Step 7: Updating archive...")
     if successes > 0:
-        save_to_archive(track["id"])
+        if not archived:
+            save_to_archive(track["id"])
         logger.info(f"Archived: {track['id']} ({successes}/{len(windows)} shorts uploaded)")
     else:
         logger.warning(f"NOT archiving {track['id']} — 0/{len(windows)} shorts uploaded. Will retry next run.")

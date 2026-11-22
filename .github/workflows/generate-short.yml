@@ -56,7 +56,7 @@ jobs:
           SPOTIFY_URL: ${{ secrets.SPOTIFY_URL }}
           APPLE_MUSIC_URL: ${{ secrets.APPLE_MUSIC_URL }}
           PARTNER_LINK_1: ${{ secrets.PARTNER_LINK_1 }}
-          NUM_SHORTS: '4'
+          NUM_SHORTS: '2'
           SCHEDULE_UPLOADS: 'true'
         run: python generate_short.py
 
