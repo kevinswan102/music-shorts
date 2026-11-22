@@ -10,6 +10,8 @@ def _wav(y, sr=22050):
     return f.name
 
 
+# test_overlay_content stubs librosa in sys.modules; run this file on its own.
+@unittest.skipUnless(hasattr(ba.librosa, 'load'), 'librosa stubbed by another test module')
 class BeatlessTrackTest(unittest.TestCase):
     def test_beatless_pad_does_not_crash(self):
         sr = 22050
