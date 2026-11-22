@@ -1005,7 +1005,8 @@ def main():
     promo_day = int(os.getenv("BEAT_STORE_PROMO_WEEKDAY", "6"))
     if promo_day >= 0 and datetime.now(timezone.utc).weekday() != promo_day:
         promo_enabled = False
-    if promo_enabled and os.getenv("BEATSTARS_URL", ""):
+    from youtube_uploader import beatstars_active
+    if promo_enabled and beatstars_active() and os.getenv("BEATSTARS_URL", ""):
         logger.info("Step 6b: Rendering beat store promo short...")
         promo_publish = publish_schedule[-1] if publish_schedule else None
         promo_ok = render_and_upload_promo_short(

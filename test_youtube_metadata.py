@@ -24,3 +24,16 @@ class DistroKidReferralTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BeatStarsPause(unittest.TestCase):
+    def test_flag_controls_beatstars_plug(self):
+        import youtube_uploader as yu
+        with mock.patch.dict(os.environ, {"BEATSTARS_ACTIVE": "false"}):
+            self.assertFalse(yu.beatstars_active())
+        with mock.patch.dict(os.environ, {"BEATSTARS_ACTIVE": "true"}):
+            self.assertTrue(yu.beatstars_active())
+
+    def test_workflow_pauses_beatstars(self):
+        wf = open(".github/workflows/generate-short.yml").read()
+        self.assertIn("BEATSTARS_ACTIVE: 'false'", wf)

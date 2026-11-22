@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 DISTROKID_REFERRAL_URL_DEFAULT = "https://distrokid.com/vip/seven/3497468"
 
 
+
+def beatstars_active() -> bool:
+    """BeatStars plugs on/off (BEATSTARS_ACTIVE). Off while the store plan is
+    downgraded, so Shorts don't send viewers to a thin store."""
+    return os.getenv("BEATSTARS_ACTIVE", "true").lower() in {"1", "true", "yes", "on"}
+
 class YouTubeUploader:
     """YouTube upload system for music Shorts with OAuth authentication"""
 
@@ -253,9 +259,10 @@ class YouTubeUploader:
 
         blocks = []
 
-        blocks.append(
-            "Grab free beat downloads from the BeatStars link in my channel bio!"
-        )
+        if beatstars_active():
+            blocks.append(
+                "Grab free beat downloads from the BeatStars link in my channel bio!"
+            )
 
         stream_lines = []
         if hyperfollow:
@@ -353,10 +360,11 @@ class YouTubeUploader:
         if llm_description:
             desc_parts.append(llm_description)
 
-        # Beat store CTA — top priority
-        desc_parts.append(
-            "Grab free beat downloads from the BeatStars link in my channel bio!"
-        )
+        # Beat store CTA — top priority when the store is active
+        if beatstars_active():
+            desc_parts.append(
+                "Grab free beat downloads from the BeatStars link in my channel bio!"
+            )
 
         # Stream CTA
         stream_lines = []

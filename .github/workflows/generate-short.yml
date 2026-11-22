@@ -51,6 +51,8 @@ jobs:
           SOURCE_CHANNEL_URL: ${{ secrets.SOURCE_CHANNEL_URL }}
           ARTIST_NAME: ${{ secrets.ARTIST_NAME }}
           BEATSTARS_URL: ${{ secrets.BEATSTARS_URL }}
+          # Paused while the BeatStars plan is downgraded; set 'true' after resubscribing.
+          BEATSTARS_ACTIVE: 'false'
           INSTAGRAM_HANDLE: ${{ secrets.INSTAGRAM_HANDLE }}
           HYPERFOLLOW_URL: ${{ secrets.HYPERFOLLOW_URL }}
           SPOTIFY_URL: ${{ secrets.SPOTIFY_URL }}
