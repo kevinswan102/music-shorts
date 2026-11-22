@@ -22,6 +22,9 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+DISTROKID_REFERRAL_URL_DEFAULT = "https://distrokid.com/vip/seven/3497468"
+
+
 class YouTubeUploader:
     """YouTube upload system for music Shorts with OAuth authentication"""
 
@@ -369,6 +372,18 @@ class YouTubeUploader:
 
         if partner_link:
             desc_parts.append(partner_link)
+
+        # Referral for viewers who make music. Labeled as an affiliate link
+        # (FTC); the offer is DistroKid's and can change. Set
+        # DISTROKID_REFERRAL_URL to "" to turn it off.
+        distrokid = os.getenv('DISTROKID_REFERRAL_URL', DISTROKID_REFERRAL_URL_DEFAULT)
+        if distrokid:
+            desc_parts.append(
+                "Make your own music? I release mine with DistroKid: it puts your songs on "
+                "Spotify, Apple Music, TikTok and more, and you keep 100% of your royalties. "
+                f"Get 7% off your first year: {distrokid}\n"
+                "(Affiliate link. I may earn a commission. Discount set by DistroKid and subject to change.)"
+            )
 
         desc_parts.append("#music #shorts #beats #freebeats #typebeat #producer")
 
