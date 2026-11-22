@@ -201,6 +201,64 @@ PEXELS_SUBJECT_KEYWORDS = [
     "person standing rain cinematic",
 ]
 
+# Top-performing Shorts (1.2-1.5k views vs ~34 median) were bright, daytime,
+# people moving/dancing. These go first; dark clips are filtered by brightness.
+# Queries say "adults": generic "girls/people dancing" returns young kids,
+# which invites bad comments and made-for-kids flags.
+PEXELS_BRIGHT_PEOPLE_KEYWORDS = [
+    "adult friends dancing daytime",
+    "young adults dancing street summer",
+    "concert crowd jumping",
+    "friends laughing summer",
+    "skateboarding sunny day",
+    "friends running beach",
+    "street dancer daylight",
+    "festival crowd daytime",
+    "friends road trip convertible",
+    "woman dancing colorful wall",
+    "young adults dancing rooftop",
+    "young adults jumping pool summer",
+    "roller skating sunny",
+    "basketball court friends",
+    "adults dancing party colorful",
+]
+
+# "Wait, what am I watching" visuals: odd, satisfying, hypnotic. Mixed in with
+# the people clips so every Short has variety.
+PEXELS_EYE_CATCHING_KEYWORDS = [
+    "ferrofluid magnet", "ink in water slow motion", "paint pouring colorful",
+    "kinetic sand cutting", "domino chain reaction", "jellyfish glowing",
+    "liquid metal", "soap bubble macro", "glass blowing", "marble run",
+    "kaleidoscope pattern", "colorful smoke slow motion", "lava flow",
+    "pottery wheel clay", "cotton candy making", "water balloon slow motion",
+    "fpv drone flying through", "octopus underwater", "fireworks slow motion",
+    "hydraulic press", "neon sign bending glass", "time lapse flowers blooming",
+    "macro chameleon", "northern lights time lapse", "slime satisfying",
+]
+MAX_CLIPS_PER_QUERY = 2  # one query must not fill the whole Short
+
+
+# Mean luma (0-255) below which a clip counts as too dark to lead with.
+MIN_CLIP_BRIGHTNESS = float(os.getenv("MIN_CLIP_BRIGHTNESS", "60"))
+
+
+def _clip_brightness(path: str) -> Optional[float]:
+    """Average luma of a few frames; None if ffmpeg can't measure it."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-t", "6", "-i", path,
+             "-vf", "fps=1,scale=64:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG",
+             "-f", "null", "-"],
+            capture_output=True, text=True, timeout=60,
+        )
+        vals = [float(l.rsplit("=", 1)[1]) for l in (out.stderr + out.stdout).splitlines()
+                if "lavfi.signalstats.YAVG=" in l]
+        return sum(vals) / len(vals) if vals else None
+    except Exception:
+        return None
+
+
 PEXELS_MOOD_SUBJECT_KEYWORDS = {
     "chill": [
         "person watching sunset ocean",
@@ -521,9 +579,18 @@ def _fetch_pexels(genre: str, num_clips: int, output_dir: str, exclude_ids: set 
     random.shuffle(mood_keywords)
     random.shuffle(subject_keywords)
 
-    # Start with subjects/POV so the Short feels like someone is living the song.
+    bright_keywords = list(PEXELS_BRIGHT_PEOPLE_KEYWORDS)
+    eye_keywords = list(PEXELS_EYE_CATCHING_KEYWORDS)
+    random.shuffle(bright_keywords)
+    random.shuffle(eye_keywords)
+    # Alternate bright people with eye-catching visuals, then subjects/POV,
+    # then mood scenery as backup.
+    mixed = []
+    for i in range(max(len(bright_keywords), len(eye_keywords))):
+        mixed += bright_keywords[i:i + 1] + eye_keywords[i:i + 1]
     subject_count = min(len(subject_keywords), max(4, num_clips))
-    keywords = subject_keywords[:subject_count] + mood_keywords
+    keywords = mixed + subject_keywords[:subject_count] + mood_keywords
+    dark_spares = []
 
     downloaded = []
     used_ids = set(exclude_ids) if exclude_ids else set()
@@ -534,8 +601,9 @@ def _fetch_pexels(genre: str, num_clips: int, output_dir: str, exclude_ids: set 
         time.sleep(0.5)
         videos = _pexels_search(keyword, per_page=10, orientation="portrait")
         random.shuffle(videos)
+        taken = 0
         for video in videos:
-            if len(downloaded) >= num_clips:
+            if len(downloaded) >= num_clips or taken >= MAX_CLIPS_PER_QUERY:
                 break
             vid_id = video.get("id")
             if vid_id in used_ids:
@@ -545,8 +613,23 @@ def _fetch_pexels(genre: str, num_clips: int, output_dir: str, exclude_ids: set 
                 exclude_ids.add(vid_id)
             path = _pexels_download(video, output_dir=output_dir)
             if path:
+                lum = _clip_brightness(path)
+                if lum is not None and lum < MIN_CLIP_BRIGHTNESS:
+                    logger.info(f"Clip too dark (luma {lum:.0f}), kept as spare: {path}")
+                    dark_spares.append(path)
+                    continue
                 downloaded.append(path)
+                taken += 1
 
+    # Never fail a Short for lack of bright clips: top up with dark spares.
+    for p in dark_spares:
+        if len(downloaded) >= num_clips:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        else:
+            downloaded.append(p)
     return downloaded
 
 

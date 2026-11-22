@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 MAX_DURATION = 24.0   # max Short length
 MIN_DURATION = 15.0   # min Short length
 WINDOW_HOP = 1.0      # sliding window hop (seconds)
+HOOK_SECONDS = 3.0    # the first seconds decide whether viewers swipe away
+HOOK_WEIGHT = 0.6     # extra weight on energy in the opening seconds
 
 
 class SilentAudioError(ValueError):
@@ -127,6 +129,16 @@ def analyze_track(audio_path: str) -> dict:
     }
 
 
+def _window_score(onset_env: np.ndarray, start_frame: int, window_frames: int,
+                  frame_duration: float) -> float:
+    """Mean energy of the window plus a bonus for a loud opening, so the
+    Short starts on the drop instead of a quiet intro."""
+    window = onset_env[start_frame: start_frame + window_frames]
+    hook_frames = max(1, int(HOOK_SECONDS / frame_duration))
+    opening = onset_env[start_frame: start_frame + hook_frames]
+    return float(np.mean(window)) + HOOK_WEIGHT * float(np.mean(opening))
+
+
 def _find_best_window(onset_env: np.ndarray, sr: int,
                        track_duration: float,
                        target_duration: float = 30.0) -> Tuple[float, float]:
@@ -146,8 +158,7 @@ def _find_best_window(onset_env: np.ndarray, sr: int,
     best_frame = 0
 
     for start_frame in range(0, len(onset_env) - window_frames, hop_frames):
-        window = onset_env[start_frame: start_frame + window_frames]
-        score = float(np.mean(window))
+        score = _window_score(onset_env, start_frame, window_frames, frame_duration)
         if score > best_score:
             best_score = score
             best_frame = start_frame
@@ -182,8 +193,7 @@ def _find_top_windows(onset_env: np.ndarray, sr: int,
     # Score all windows
     scored = []
     for start_frame in range(0, len(onset_env) - window_frames, hop_frames):
-        window = onset_env[start_frame: start_frame + window_frames]
-        score = float(np.mean(window))
+        score = _window_score(onset_env, start_frame, window_frames, frame_duration)
         start_time = start_frame * frame_duration
         scored.append((score, start_time))
 
@@ -212,17 +222,25 @@ def _find_top_windows(onset_env: np.ndarray, sr: int,
     if len(results) < n and track_duration >= target_duration * 1.5:
         results = []
         zone_len = track_duration / n
+        prev_end = 0.0
         for z in range(n):
             zone_start = z * zone_len
             zone_end = min((z + 1) * zone_len, track_duration)
             best_score = -1
-            best_time = zone_start
+            best_time = None
             for sc, st in scored:
-                if zone_start <= st < zone_end and st + target_duration <= track_duration:
+                # st >= prev_end keeps zones from overlapping (near-duplicate audio)
+                if (zone_start <= st < zone_end and st >= prev_end
+                        and st + target_duration <= track_duration):
                     if sc > best_score:
                         best_score = sc
                         best_time = st
-            results.append((best_time, min(best_time + target_duration, track_duration)))
+            if best_time is None:
+                continue
+            prev_end = best_time + target_duration
+            results.append((best_time, min(prev_end, track_duration)))
+        if not results:
+            results = [(0.0, min(track_duration, target_duration))]
 
     return results
 
