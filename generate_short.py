@@ -38,7 +38,8 @@ ARTIST_NAME = os.getenv("ARTIST_NAME", "Unknown Artist")
 NUM_SHORTS = int(os.getenv("NUM_SHORTS", "2"))
 
 # Publishing slots in UTC hours — 10am / 1pm / 6pm / 9pm ET
-_PUBLISH_SLOTS_UTC = [14, 17, 22, 1]
+# 21:00 and 01:00 UTC = 4pm and 8pm ET, when the audience is scrolling.
+_PUBLISH_SLOTS_UTC = [21, 1, 17, 14]
 
 
 def _post_business_metric(payload: dict) -> None:
@@ -60,7 +61,7 @@ def _post_business_metric(payload: dict) -> None:
 
 def _get_publish_schedule(n: int) -> list:
     """Return n UTC ISO8601 publish times spread across today's schedule.
-    Slots: 14:00, 17:00, 22:00, 01:00 UTC (= 10am, 1pm, 6pm, 9pm ET).
+    Slots in _PUBLISH_SLOTS_UTC order (first two: 4pm and 8pm ET).
     Any slot already in the past is bumped to tomorrow at the same hour.
     Returns empty list if SCHEDULE_UPLOADS env var is not 'true'.
     """
@@ -971,7 +972,7 @@ def main():
     windows = analysis.get("all_windows", [(analysis["best_start"], analysis["best_end"])])
     logger.info(f"Generating {len(windows)} shorts from different sections")
 
-    # Calculate staggered publish times (10am / 1pm / 6pm / 9pm ET)
+    # Staggered publish times (see _PUBLISH_SLOTS_UTC)
     publish_schedule = _get_publish_schedule(len(windows))
     if publish_schedule:
         logger.info(f"Publish schedule: {publish_schedule}")
