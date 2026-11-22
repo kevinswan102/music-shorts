@@ -248,26 +248,24 @@ def _pick_overlay_mode(short_num: int = 1) -> str:
 # Short, playful, music-related prompts. One or two lines so the cuts stay
 # fast. Comment prompts ("rate it", "which part") drive engagement.
 _VIBE_PROMPTS = [
-    ["rate this beat 1-10"],
+    # Mood/scene prompts only: nothing that asks viewers to comment or
+    # answer a question (owner: invites trolling).
     ["POV: 2am drive", "and this comes on"],
     ["turn your volume up"],
     ["wait for it..."],
-    ["would you play this", "at a party?"],
-    ["this one goes hard", "or no?"],
     ["save this for", "your next road trip"],
     ["POV: main character", "walking to class"],
-    ["send this to a friend", "who needs new music"],
-    ["gym playlist or", "late-night playlist?"],
-    ["what would you name", "this song?"],
     ["POV: the bass", "hits at 3am"],
     ["headphones on", "for this one"],
-    ["comment a 🔥 if", "this hits"],
     ["POV: you're in the", "movie montage now"],
-    ["drop your city", "if you're listening"],
-    ["this beat or", "your current playlist?"],
     ["POV: you finally", "finished your homework"],
     ["loop it. trust me."],
-    ["what are you doing", "while listening?"],
+    ["POV: windows down", "on the highway"],
+    ["late-night", "study session"],
+    ["POV: city lights", "after midnight"],
+    ["this one is", "for the gym"],
+    ["POV: last day", "of summer"],
+    ["sunset playlist", "starts here"],
 ]
 
 

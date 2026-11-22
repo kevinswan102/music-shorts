@@ -602,7 +602,7 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
         "vibe": [
             "follow for a new beat every day",
             "subscribe for more beats",
-            "tell me in the comments",
+            "new beats every day",
         ],
         "none": [
             "subscribe for more beats",

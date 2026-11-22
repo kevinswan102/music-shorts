@@ -64,3 +64,14 @@ class VibeOverlay(unittest.TestCase):
             modes = {gs._pick_overlay_mode(short_num=n) for n in range(1, 11)}
         self.assertNotIn("beatstore", modes)
         self.assertIn("vibe", modes)
+
+
+class NoCommentBait(unittest.TestCase):
+    def test_vibe_prompts_do_not_ask_for_comments(self):
+        import generate_short as gs
+        for p in gs._VIBE_PROMPTS:
+            text = " ".join(p).lower()
+            self.assertNotIn("?", text, p)
+            self.assertNotIn("comment", text, p)
+            self.assertNotIn("drop your", text, p)
+            self.assertNotIn("rate this", text, p)
