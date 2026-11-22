@@ -47,3 +47,20 @@ class NoSaleClaims(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VibeOverlay(unittest.TestCase):
+    def test_daily_shorts_get_different_short_prompts(self):
+        import generate_short as gs
+        a, b = gs._vibe_overlay(short_num=1), gs._vibe_overlay(short_num=2)
+        self.assertNotEqual(a, b)
+        for p in gs._VIBE_PROMPTS:
+            self.assertLessEqual(len(p), 2)
+            self.assertTrue(all(len(line) <= gs._OVERLAY_MAX_CHARS for line in p), p)
+
+    def test_no_onscreen_ad_in_default_rotation(self):
+        import generate_short as gs
+        with mock.patch.dict(os.environ, {"OVERLAY_MODE_ROTATION": ""}):
+            modes = {gs._pick_overlay_mode(short_num=n) for n in range(1, 11)}
+        self.assertNotIn("beatstore", modes)
+        self.assertIn("vibe", modes)

@@ -167,6 +167,8 @@ def generate_overlay_text(track_name: str = "", genre: str = "",
         return []
     if mode == "beatstore":
         return _beat_store_overlay(max_lines=max_lines)
+    if mode == "vibe":
+        return _vibe_overlay(track_name=track_name, short_num=short_num)
     if mode == "protip":
         lines = _pro_tip_overlay(max_lines=max_lines)
         if lines:
@@ -217,7 +219,12 @@ def _pick_overlay_mode(short_num: int = 1) -> str:
         # when live Reddit fetches started returning nothing; it now serves
         # from the local overlay pool (overlay_content.py) and never needs
         # the network, so it is a real fifth format again.
-        modes = ["protip", "none", "fact", "beatstore", "reddit"]
+        # 2026-11-22: the best Shorts (1.2-1.5k views) were bright footage
+        # with fast cuts and almost no text; typical ones (~34) carried an
+        # off-topic fact that also slowed the cuts. "vibe" is a short,
+        # music-related prompt that keeps fast cuts. The on-screen beat-store
+        # ad is out of the daily rotation (the weekly promo Short remains).
+        modes = ["vibe", "none", "vibe", "reddit", "none"]
 
     day_offset = datetime.now(timezone.utc).timetuple().tm_yday
     idx = (day_offset + max(0, short_num - 1)) % len(modes)
@@ -235,7 +242,39 @@ def _pick_overlay_mode(short_num: int = 1) -> str:
         "notext": "none",
     }
     mode = aliases.get(mode, mode)
-    return mode if mode in {"protip", "reddit", "fact", "none", "beatstore"} else "fact"
+    return mode if mode in {"vibe", "protip", "reddit", "fact", "none", "beatstore"} else "vibe"
+
+
+# Short, playful, music-related prompts. One or two lines so the cuts stay
+# fast. Comment prompts ("rate it", "which part") drive engagement.
+_VIBE_PROMPTS = [
+    ["rate this beat 1-10"],
+    ["POV: 2am drive", "and this comes on"],
+    ["turn your volume up"],
+    ["wait for it..."],
+    ["would you play this", "at a party?"],
+    ["this one goes hard", "or no?"],
+    ["save this for", "your next road trip"],
+    ["POV: main character", "walking to class"],
+    ["send this to a friend", "who needs new music"],
+    ["gym playlist or", "late-night playlist?"],
+    ["what would you name", "this song?"],
+    ["POV: the bass", "hits at 3am"],
+    ["headphones on", "for this one"],
+    ["comment a 🔥 if", "this hits"],
+    ["POV: you're in the", "movie montage now"],
+    ["drop your city", "if you're listening"],
+    ["this beat or", "your current playlist?"],
+    ["POV: you finally", "finished your homework"],
+    ["loop it. trust me."],
+    ["what are you doing", "while listening?"],
+]
+
+
+def _vibe_overlay(track_name: str = "", short_num: int = 1) -> list:
+    """Pick a prompt that changes daily and differs between the day's Shorts."""
+    day = datetime.now(timezone.utc).timetuple().tm_yday
+    return list(_VIBE_PROMPTS[(day * 3 + short_num * 7) % len(_VIBE_PROMPTS)])
 
 
 def _overlay_max_lines_for_duration(duration: float) -> int:
@@ -632,7 +671,13 @@ def render_and_upload_short(audio_path: str, analysis: dict,
         if poem_lines:
             logger.info(f"Overlay text {short_num}: {poem_lines}")
 
-    if poem_lines:
+    if overlay_mode == "vibe" and len(poem_lines) <= 2 and \
+            genre in ("phonk", "hype", "trap", "electronic", "rock", "dark", "trippy"):
+        # One-glance prompt: keep the fast cuts the best Shorts had
+        cut_kwargs = {"min_interval": 0.6, "max_interval": 1.6, "skip_ratio": 0.25}
+    elif poem_lines and overlay_mode == "vibe":
+        cut_kwargs = {"min_interval": 1.0, "max_interval": 2.2, "skip_ratio": 0.45}
+    elif poem_lines:
         # Text on screen — hold clips longer so viewer can read
         cut_kwargs = {"min_interval": 1.5, "max_interval": 3.0, "skip_ratio": 0.60}
     elif genre in ("phonk", "hype", "trap", "electronic", "rock", "dark", "trippy"):
