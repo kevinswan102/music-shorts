@@ -26,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger("generate_short")
 
 from music_source import list_channel_videos, pick_next_track, download_audio, save_to_archive
-from beat_analyzer import analyze_track, extract_audio_segment, get_beat_intervals
+from beat_analyzer import SilentAudioError, analyze_track, extract_audio_segment, get_beat_intervals
 from footage_fetcher import fetch_footage
 from video_renderer import render_short
 import overlay_content
@@ -912,7 +912,13 @@ def main():
 
     # Step 4: Analyze beats — finds multiple windows
     logger.info("Step 4: Analyzing beats and finding best sections...")
-    analysis = analyze_track(audio_path)
+    try:
+        analysis = analyze_track(audio_path)
+    except SilentAudioError as e:
+        # Skip the track so tomorrow's run moves on instead of retrying it forever.
+        logger.error(f"{e}. Skipping track {track['id']} and exiting.")
+        save_to_archive(track["id"])
+        sys.exit(1)
     bpm = analysis["bpm"]
     energy = analysis.get("energy", "")
     brightness = analysis.get("brightness", "")

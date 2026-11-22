@@ -18,6 +18,10 @@ MIN_DURATION = 15.0   # min Short length
 WINDOW_HOP = 1.0      # sliding window hop (seconds)
 
 
+class SilentAudioError(ValueError):
+    """Downloaded audio has no signal; the track cannot make a Short."""
+
+
 def analyze_track(audio_path: str) -> dict:
     """
     Full analysis of a track.
@@ -42,6 +46,17 @@ def analyze_track(audio_path: str) -> dict:
     bpm = float(np.atleast_1d(tempo)[0])
     logger.info(f"BPM: {bpm:.1f}, {len(beat_times)} beats detected")
 
+    # A track with no detectable beat (ambient pads) used to crash below on
+    # 60/bpm and, since the archive only advances on upload, blocked every
+    # run on the same song (Sep 2026). Truly silent audio is a bad download.
+    if len(y) == 0 or float(np.max(np.abs(y))) < 1e-3:
+        raise SilentAudioError(f"audio is silent or empty: {audio_path}")
+    if not beat_times:
+        # Beatless track: cut footage on an even 2-second grid instead of
+        # holding one clip for the whole Short. bpm stays 0 so nothing
+        # downstream treats the grid as a real tempo.
+        beat_times = np.arange(0.0, duration, 2.0).tolist()
+
     # Onset strength envelope (used to find most energetic section)
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
 
@@ -64,12 +79,14 @@ def analyze_track(audio_path: str) -> dict:
     all_windows = _find_top_windows(onset_env, sr, duration, target_dur, n=num_shorts)
 
     # Snap each to bar boundaries for clean looping
-    bar_duration = 4 * (60.0 / bpm)  # 4 beats per bar
-    snapped_windows = []
-    for ws, we in all_windows:
-        ws, we = _snap_to_bars(ws, we, beat_times, bar_duration, duration)
-        snapped_windows.append((ws, we))
-    logger.info(f"Found {len(snapped_windows)} bar-aligned windows (bar={bar_duration:.2f}s)")
+    if bpm > 0 and beat_times:
+        bar_duration = 4 * (60.0 / bpm)  # 4 beats per bar
+        snapped_windows = [_snap_to_bars(ws, we, beat_times, bar_duration, duration)
+                           for ws, we in all_windows]
+        logger.info(f"Found {len(snapped_windows)} bar-aligned windows (bar={bar_duration:.2f}s)")
+    else:
+        snapped_windows = list(all_windows)
+        logger.info(f"No beat detected; using {len(snapped_windows)} energy windows unsnapped")
 
     # Primary window (best energy)
     best_start, best_end = snapped_windows[0]
