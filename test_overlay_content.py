@@ -162,7 +162,7 @@ class RenderPathTests(PoolTestBase):
 
     def test_every_rotation_mode_is_valid(self):
         os.environ.pop("OVERLAY_MODE_ROTATION", None)
-        valid = {"protip", "reddit", "fact", "none", "beatstore"}
+        valid = {"vibe", "protip", "reddit", "fact", "none", "beatstore"}
         for n in range(1, 12):
             self.assertIn(generate_short._pick_overlay_mode(short_num=n), valid)
 

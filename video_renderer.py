@@ -599,6 +599,11 @@ def add_text_overlay(video_path: str, track_name: str, artist: str,
             "follow for daily tips & beats",
             "more tips every day",
         ],
+        "vibe": [
+            "follow for a new beat every day",
+            "subscribe for more beats",
+            "new beats every day",
+        ],
         "none": [
             "subscribe for more beats",
             "new beats every day",
